@@ -25,7 +25,7 @@ cat > /tmp/readwrite.json << 'EOF'
       ],
       "Resource": [
         "arn:aws:s3:::documents/*",
-        "arn:aws:s3:::templates/*",
+        "arn:aws:s3:::templates/*"
       ]
     }
   ]
