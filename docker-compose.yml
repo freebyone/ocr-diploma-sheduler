@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   postgres:
     image: postgres:17-alpine
@@ -13,64 +11,32 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./infrastructure/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
-      - ./infrastructure/postgres/backups:/backups
     networks:
       - network
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    command: >
-      postgres
-      -c max_connections=200
-      -c shared_buffers=256MB
-      -c effective_cache_size=1GB
-      -c maintenance_work_mem=64MB
-      -c checkpoint_completion_target=0.9
-      -c wal_buffers=16MB
-      -c default_statistics_target=100
 
   kafka:
-    image: apache/kafka:3.7.0
+    image: bitnamilegacy/kafka:4.0.0-debian-12-r10
     container_name: ocr-kafka
     ports:
       - "9092:9092"
       - "9093:9093"
-      - "9101:9101"
     environment:
-      KAFKA_NODE_ID: 1
-      KAFKA_PROCESS_ROLES: broker,controller
-      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
-      KAFKA_LISTENERS: PLAINTEXT://kafka:9092,CONTROLLER://kafka:9093,EXTERNAL://localhost:9094
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
-      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
-      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
-      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
-      KAFKA_LOG_RETENTION_HOURS: 168
-      KAFKA_NUM_PARTITIONS: 3
-      KAFKA_LOG_DIRS: /tmp/kraft-combined-logs
-      KAFKA_JMX_PORT: 9101
-      KAFKA_JMX_HOSTNAME: localhost
-      KAFKA_HEAP_OPTS: "-Xmx1G -Xms512M"
-      KAFKA_JVM_PERFORMANCE_OPTS: "-XX:+UseG1GC -XX:MaxGCPauseMillis=20 -XX:InitiatingHeapOccupancyPercent=35 -XX:+ExplicitGCInvokesConcurrent -XX:MaxInlineLevel=15"
+      KAFKA_CFG_NODE_ID: 1
+      KAFKA_CFG_PROCESS_ROLES: controller,broker
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CFG_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      ALLOW_PLAINTEXT_LISTENER: "yes"
+      KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: "true"
     volumes:
-      - kafka_data:/tmp/kraft-combined-logs
+      - kafka_data:/bitnami/kafka
     networks:
       - network
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9092", "--list"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-    command: >
-      /opt/kafka/bin/kafka-storage.sh format -t $${KAFKA_CLUSTER_ID} -c /opt/kafka/config/kraft/server.properties &&
-      /opt/kafka/bin/kafka-server-start.sh /opt/kafka/config/kraft/server.properties
 
   minio:
     image: minio/minio:latest
@@ -79,13 +45,9 @@ services:
       - "9000:9000"
       - "9001:9001"
     environment:
-      MINIO_ROOT_USER: ocr-minio
-      MINIO_ROOT_PASSWORD: admin
+      MINIO_ROOT_USER: ocrminio
+      MINIO_ROOT_PASSWORD: admin123456
       MINIO_BROWSER: "on"
-      MINIO_API_CORS_ALLOW_ORIGIN: "*"
-      MINIO_PROMETHEUS_AUTH_TYPE: "public"
-      MINIO_PROMETHEUS_URL: "http://minio:9000/minio/prometheus/metrics"
-      MINIO_DEFAULT_BUCKETS: "documents,templates,exports,uploads,backups"
     volumes:
       - minio_data:/data
       - ./infrastructure/minio/initialize.sh:/docker-entrypoint-init.d/initialize.sh
@@ -93,34 +55,6 @@ services:
     networks:
       - network
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
-      interval: 30s
-      timeout: 20s
-      retries: 3
-
-  minio-client:
-    image: minio/mc:latest
-    container_name: ocr-minio-client
-    depends_on:
-      - minio
-    entrypoint: >
-      /bin/sh -c "
-      sleep 10;
-      mc alias set localminio http://minio:9000 ocr-minio admin;
-      mc mb --ignore-existing localminio/documents;
-      mc mb --ignore-existing localminio/templates;
-      mc mb --ignore-existing localminio/exports;
-      mc mb --ignore-existing localminio/uploads;
-      mc mb --ignore-existing localminio/backups;
-      mc anonymous set download localminio/documents;
-      mc admin user add localminio appuser apppassword123;
-      echo 'MinIO готов к работе';
-      tail -f /dev/null
-      "
-    networks:
-      - network
-    restart: on-failure:3
 
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
@@ -132,9 +66,6 @@ services:
     environment:
       KAFKA_CLUSTERS_0_NAME: ocr-cluster
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
-      KAFKA_CLUSTERS_0_KRAFT_ENABLED: "true"
-      KAFKA_CLUSTERS_0_METRICS_PORT: 9101
-      DYNAMIC_CONFIG_ENABLED: "true"
     networks:
       - network
     restart: unless-stopped
@@ -144,35 +75,18 @@ services:
     container_name: ocr-redis
     ports:
       - "6379:6379"
-    command: >
-      redis-server
-      --requirepass redis123
-      --maxmemory 256mb
-      --maxmemory-policy allkeys-lru
-      --save 900 1
-      --save 300 10
-      --save 60 10000
+    command: redis-server --requirepass redis123
     volumes:
       - redis_data:/data
     networks:
       - network
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
 
 volumes:
   postgres_data:
-    driver: local
   kafka_data:
-    driver: local
   minio_data:
-    driver: local
   redis_data:
-    driver: local
 
 networks:
   network:
-    driver: bridge
