@@ -2,9 +2,9 @@ from paddleocr import PaddleOCRVL
 from main import Image
 import asyncio
 
-def ocr(img_path):
+def ocr(img_path: Image):
     pipeline = PaddleOCRVL()
-    output = pipeline.predict("https://i.pinimg.com/originals/07/bb/92/07bb92b723e735071d2e8d308b4e6a91.jpg")
+    output = pipeline.predict(img_path)
     for res in output:
         res.print()
         res.save_to_json(save_path="output")
