@@ -39,6 +39,6 @@ ENV PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK=True
 
 WORKDIR /app
 
-COPY ./src/ /app/
+COPY ./ /app/
 
-CMD ["python", "ai-scheduler.py"]
+ENTRYPOINT [ "python main.py" ]
