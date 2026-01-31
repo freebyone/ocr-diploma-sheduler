@@ -13,7 +13,7 @@ def ocr(img_path: str):
 
 async def recognise(img: str):
     try:
-        res = ocr(img) #ПЕРПИСАТЬ НА ПОТОКИ И АСИНХРОН (МБ ОЧЕРЕДЬ ЗАПРОСОВ)
+        res = ocr(img)
     except Exception as e:
         raise e
     return res
