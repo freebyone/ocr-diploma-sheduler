@@ -1,4 +1,4 @@
-FROM python:3.9-slim
+FROM python:3.12-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
@@ -31,7 +31,7 @@ RUN pip install opencv-python-headless==4.10.0.84 \
     pillow>=9.0.0 \
     scipy>=1.7.0
 
-    RUN pip install paddlepaddle-gpu==3.2.1 -i https://www.paddlepaddle.org.cn/packages/stable/cu126/ \
+RUN pip install paddlepaddle-gpu==3.2.1 -i https://www.paddlepaddle.org.cn/packages/stable/cu126/ \
     && pip install -U "paddleocr[doc-parser]" \
     && pip install https://paddle-whl.bj.bcebos.com/nightly/cu126/safetensors/safetensors-0.6.2.dev0-cp38-abi3-linux_x86_64.whl
 
@@ -39,6 +39,8 @@ ENV PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK=True
 
 WORKDIR /app
 
-COPY ./src/ /app/
+COPY ./ /app/
 
-CMD ["python", "ai-scheduler.py"]
+RUN pip install -r req.txt
+
+CMD ["python", "main.py"]
