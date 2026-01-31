@@ -1,5 +1,5 @@
 from paddleocr import PaddleOCRVL
-from models import Image
+from src.models import Image
 import asyncio
 
 def ocr(img_path: Image):
