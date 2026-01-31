@@ -43,4 +43,4 @@ COPY ./ /app/
 
 RUN pip install -r req.txt
 
-ENTRYPOINT [ "python main.py" ]
+CMD ["python", "main.py"]
