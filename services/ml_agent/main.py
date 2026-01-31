@@ -1,12 +1,10 @@
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, HttpUrl
-import uvicorn
 from src.ai_scheduler import recognise
+from src.models import Image
 from settings import global_settings
 import json
+import uvicorn
 
-class Image(BaseModel):
-    url: HttpUrl
 
 app = FastAPI()
 
