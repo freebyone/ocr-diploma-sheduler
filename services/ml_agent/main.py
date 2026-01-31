@@ -11,7 +11,7 @@ app = FastAPI()
 @app.post("/recognise")
 async def ocr(img: Image):
     try:
-        ret = await recognise(str(img))
+        ret = await recognise(img)
         ret = json.loads(ret)
         return ret
     except Exception as e:
