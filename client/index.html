@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Обработка PDF файлов</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        body {
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            color: #333;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding: 20px;
+            background-color: #fff;
+            border-radius: 12px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.08);
+        }
+        
+        h1 {
+            color: #2c3e50;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 15px;
+        }
+        
+        h1 i {
+            color: #e74c3c;
+        }
+        
+        .description {
+            color: #7f8c8d;
+            max-width: 800px;
+            margin: 0 auto;
+            line-height: 1.6;
+        }
+        
+        .upload-area {
+            background-color: white;
+            border-radius: 12px;
+            padding: 40px;
+            margin-bottom: 30px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.08);
+            text-align: center;
+        }
+        
+        .upload-icon {
+            font-size: 60px;
+            color: #3498db;
+            margin-bottom: 20px;
+        }
+        
+        .upload-area h3 {
+            margin-bottom: 15px;
+            color: #2c3e50;
+        }
+        
+        .upload-area p {
+            color: #7f8c8d;
+            margin-bottom: 25px;
+        }
+        
+        .file-input {
+            display: block;
+            width: 100%;
+            padding: 15px;
+            margin-bottom: 20px;
+            border: 2px dashed #3498db;
+            border-radius: 8px;
+            background-color: #f8fcff;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        
+        .file-input:hover {
+            background-color: #f0f8ff;
+        }
+        
+        .api-settings {
+            background-color: white;
+            border-radius: 12px;
+            padding: 30px;
+            margin-bottom: 30px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.08);
+        }
+        
+        .api-settings h3 {
+            color: #2c3e50;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .settings-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 20px;
+        }
+        
+        .setting-item {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        
+        .setting-item label {
+            font-weight: 600;
+            color: #2c3e50;
+        }
+        
+        .setting-item input, 
+        .setting-item select {
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 16px;
+        }
+        
+        .process-btn {
+            display: block;
+            width: 100%;
+            padding: 16px 32px;
+            font-size: 18px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            background-color: #2ecc71;
+            color: white;
+            border: none;
+            transition: background-color 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            margin-top: 20px;
+        }
+        
+        .process-btn:hover {
+            background-color: #27ae60;
+        }
+        
+        .process-btn:disabled {
+            background-color: #95a5a6;
+            cursor: not-allowed;
+        }
+        
+        .info-box {
+            background-color: #fff8e1;
+            border-left: 5px solid #ffc107;
+            padding: 20px;
+            border-radius: 8px;
+            margin-top: 30px;
+        }
+        
+        .info-box h4 {
+            color: #ff9800;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .info-box ul {
+            padding-left: 20px;
+            color: #5d4037;
+        }
+        
+        .info-box li {
+            margin-bottom: 8px;
+            line-height: 1.5;
+        }
+        
+        footer {
+            text-align: center;
+            color: #7f8c8d;
+            margin-top: 30px;
+            padding: 20px;
+            font-size: 14px;
+        }
+        
+        @media (max-width: 768px) {
+            .upload-area, .api-settings {
+                padding: 20px;
+            }
+            
+            .settings-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1><i class="fas fa-file-pdf"></i> Конвертер PDF в изображения</h1>
+            <p class="description">
+                Загрузите PDF файлы для обработки. Python API разобьёт каждый файл на отдельные страницы, 
+                преобразует их в изображения, загрузит в MinIO и отправит пути к файлам в Kafka.
+            </p>
+        </header>
+        
+        <form id="uploadForm" method="POST" action="/api/process-pdf" enctype="multipart/form-data">
+            <section class="upload-area">
+                <div class="upload-icon">
+                    <i class="fas fa-cloud-upload-alt"></i>
+                </div>
+                <h3>Выберите PDF файлы для обработки</h3>
+                <p>Максимальный размер файла: 50 MB</p>
+                <p>Поддерживаются только PDF файлы</p>
+                <input 
+                    type="file" 
+                    id="pdf_files" 
+                    name="pdf_files" 
+                    class="file-input" 
+                    accept=".pdf" 
+                    multiple 
+                    required
+                    onchange="updateSubmitButton()"
+                >
+            </section>
+            
+            <section class="api-settings">
+                <h3><i class="fas fa-cog"></i> Настройки обработки</h3>
+                <div class="settings-grid">
+                    <div class="setting-item">
+                        <label for="minio_bucket">Имя бакета MinIO:</label>
+                        <input 
+                            type="text" 
+                            id="minio_bucket" 
+                            name="minio_bucket" 
+                            value="pdf-images" 
+                            placeholder="Введите имя бакета" 
+                            required
+                        >
+                    </div>
+                    <div class="setting-item">
+                        <label for="kafka_topic">Топик Kafka:</label>
+                        <input 
+                            type="text" 
+                            id="kafka_topic" 
+                            name="kafka_topic" 
+                            value="pdf-processing" 
+                            placeholder="Введите топик Kafka" 
+                            required
+                        >
+                    </div>
+                    <div class="setting-item">
+                        <label for="image_format">Формат изображения:</label>
+                        <select id="image_format" name="image_format">
+                            <option value="jpg">JPEG (.jpg)</option>
+                            <option value="png">PNG (.png)</option>
+                            <option value="webp">WebP (.webp)</option>
+                        </select>
+                    </div>
+                    <div class="setting-item">
+                        <label for="dpi">Качество (DPI):</label>
+                        <select id="dpi" name="dpi">
+                            <option value="150">150 DPI (стандартное)</option>
+                            <option value="300" selected>300 DPI (высокое)</option>
+                            <option value="600">600 DPI (очень высокое)</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <button type="submit" class="process-btn" id="processButton">
+                    <i class="fas fa-cogs"></i> Отправить на обработку в Python API
+                </button>
+            </section>
+        </form>
+        
+        <div class="info-box">
+            <h4><i class="fas fa-info-circle"></i> Как работает обработка:</h4>
+            <ul>
+                <li><strong>1. Загрузка PDF:</strong> Вы выбираете PDF файлы через форму</li>
+                <li><strong>2. Отправка в Python API:</strong> Файлы отправляются на сервер для обработки</li>
+                <li><strong>3. Анализ PDF:</strong> Python API проверяет количество страниц в каждом файле</li>
+                <li><strong>4. Конвертация:</strong> Каждая страница конвертируется в отдельное изображение
+                    <br><em>Пример: pdf1 → img1.1.jpg, img1.2.jpg; pdf2 → img2.1.jpg, img2.2.jpg</em>
+                </li>
+                <li><strong>5. Сохранение в MinIO:</strong> Все изображения загружаются в MinIO хранилище</li>
+                <li><strong>6. Уведомление через Kafka:</strong> Пути к сохраненным файлам отправляются в Kafka</li>
+            </ul>
+        </div>
+        
+        <footer>
+            <p>Система обработки PDF файлов &copy; 2023</p>
+            <p>Python API: PDF → проверка страниц → конвертация в изображения → MinIO → Kafka</p>
+        </footer>
+    </div>
+
+    <script>
+        // Минимальный JS только для обновления состояния кнопки отправки
+        function updateSubmitButton() {
+            const fileInput = document.getElementById('pdf_files');
+            const submitButton = document.getElementById('processButton');
+            
+            if (fileInput.files.length > 0) {
+                submitButton.disabled = false;
+                submitButton.innerHTML = '<i class="fas fa-cogs"></i> Отправить на обработку (' + fileInput.files.length + ' файлов)';
+            } else {
+                submitButton.disabled = true;
+                submitButton.innerHTML = '<i class="fas fa-cogs"></i> Отправить на обработку';
+            }
+        }
+        
+        // Инициализация при загрузке страницы
+        document.addEventListener('DOMContentLoaded', function() {
+            updateSubmitButton();
+        });
+    </script>
+</body>
+</html>
