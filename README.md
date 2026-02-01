@@ -1,5 +1,5 @@
 
-## Create ml_agent with paddle - model deepseek-ai/DeepSeek-OCR
+## Create ml_agent with paddle
 
 ```
 docker build -t ml_agent
