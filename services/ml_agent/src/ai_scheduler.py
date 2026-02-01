@@ -7,9 +7,9 @@ def ocr(img_path: str):
     output = pipeline.predict(img_path)
     for res in output:
         res.print()
-        res.save_to_json(save_path="output")
-        res.save_to_markdown(save_path="output")
-        return res
+        res.save_to_json(save_path="output.json")
+        res.save_to_markdown(save_path="output.md")
+        return "{'res': 123}"
 
 async def recognise(img: str):
     try:
