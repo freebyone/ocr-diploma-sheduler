@@ -47,7 +47,7 @@ def send_ocr_request(image_path, prompt_type="text"):
     
     try:
         print(f"Отправляем запрос для {image_path}...")
-        response = requests.post(url, json=payload, timeout=60)
+        response = requests.post(url, json=payload, timeout=600)
         
         if response.status_code == 200:
             result = response.json()
