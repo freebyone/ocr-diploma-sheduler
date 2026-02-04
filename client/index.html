@@ -803,36 +803,68 @@
                 return;
             }
             
-            showStatus('pdf', 'Отправка файлов на pdf_processor API...', 'info');
+            showStatus('pdf', 'Отправка и обработка PDF файлов...', 'info');
             
             const formData = new FormData();
             
-            // Добавляем файлы
+            // Добавляем все файлы
             pdfFiles.forEach((file, index) => {
-                formData.append(`pdf_${index}`, file);
+                formData.append(`files`, file);
             });
             
             try {
-                // Отправка на Python API pdf_processor
-                const response = await fetch('/api/pdf_processor', {
+                // Отправка на PDF процессор
+                const response = await fetch('http://localhost:8000/api/process-multiple-pdfs', {
                     method: 'POST',
                     body: formData
                 });
                 
                 if (!response.ok) {
-                    throw new Error(`Ошибка сервера: ${response.status}`);
+                    const errorData = await response.json();
+                    throw new Error(errorData.detail || `Ошибка сервера: ${response.status}`);
                 }
                 
                 const result = await response.json();
-                showStatus('pdf', `Успешно отправлено! Обработано файлов: ${pdfFiles.length}`, 'success');
                 
-                // Очищаем файлы после успешной отправки
+                // Формируем подробное сообщение
+                let message = `Обработка завершена!\n`;
+                message += `Успешно обработано: ${result.processed} файлов\n`;
+                
+                if (result.failed > 0) {
+                    message += `Не удалось обработать: ${result.failed} файлов\n`;
+                }
+                
+                // Добавляем детали по каждому файлу
+                result.results.forEach((res, index) => {
+                    message += `\n${index + 1}. ${res.pdf_name}:\n`;
+                    message += `   • Страниц: ${res.pages_count}\n`;
+                    message += `   • Изображений извлечено: ${res.images_extracted}\n`;
+                    
+                    if (res.pages_count === 0) {
+                        message += `   ⚠️ PDF не содержит страниц!\n`;
+                    } else {
+                        message += `   ✅ Изображения сохранены в MinIO\n`;
+                        message += `   📁 Bucket: ${res.bucket}\n`;
+                        message += `   🆔 ID: ${res.pdf_id}\n`;
+                    }
+                });
+                
+                if (result.errors && result.errors.length > 0) {
+                    message += `\nОшибки:\n`;
+                    result.errors.forEach(err => {
+                        message += `• ${err.filename}: ${err.error}\n`;
+                    });
+                }
+                
+                showStatus('pdf', message, 'success');
+                
+                // Очищаем файлы после успешной обработки
                 pdfFiles = [];
                 updateFileCounter();
                 updateModalFileList();
                 
             } catch (error) {
-                showStatus('pdf', `Ошибка отправки: ${error.message}`, 'error');
+                showStatus('pdf', `Ошибка обработки: ${error.message}`, 'error');
                 console.error('Ошибка:', error);
             }
         }

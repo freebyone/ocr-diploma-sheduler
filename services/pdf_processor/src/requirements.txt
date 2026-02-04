@@ -1,0 +1,9 @@
+fastapi==0.104.1
+uvicorn==0.24.0
+pymupdf==1.23.8
+Pillow==10.1.0
+minio==7.1.17
+python-multipart==0.0.6
+pydantic==2.5.0
+python-dotenv==1.0.0
+uuid==1.30

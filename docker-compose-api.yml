@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  pdf-processor:
+    build:
+      context: ./services/pdf-processor/src
+      dockerfile: Dockerfile
+    container_name: ocr-pdf-processor
+    ports:
+      - "4444:8000"
+    env_file:
+      - .env
+    networks:
+      - network
+    volumes:
+      - ./app:/app
+      - ./logs:/app/logs
+    restart: unless-stopped
+
+
+networks:
+  network:
