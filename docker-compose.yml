@@ -95,6 +95,22 @@ services:
     networks:
       - network
     restart: unless-stopped
+  pdf-processor:
+    build:
+      context: ./services/pdf_processor/src
+      dockerfile: Dockerfile
+    container_name: ocr-pdf-processor
+    ports:
+      - "8000:8000"
+    networks:
+      - network
+    volumes:
+      - ./services/pdf_processor/src:/app
+      - ./services/pdf_processor/src/logs:/app/logs
+    depends_on:
+      - minio
+      - nginx
+    restart: unless-stopped
 
 volumes:
   postgres_data:
