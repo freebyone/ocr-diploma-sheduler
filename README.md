@@ -5,7 +5,6 @@
 docker build -t ml_agent
 
 docker run -it -p 81:8080 --gpus all -e port=8080 -e host=0.0.0.0 --name ocr_agent ml_agent
-
 ```
 
 
@@ -29,4 +28,6 @@ tail -f /dev/null
 docker build -t deepseek-ocr-ollama .
 
 docker run -d --gpus all --name ocr-container -p 11434:11434 deepseek-ocr-ollama
+
+python ocr_image.py ./img.jpg --prompt markdown
 ```

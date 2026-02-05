@@ -21,7 +21,7 @@ MINIO_ENDPOINT = "minio:9000"
 MINIO_ACCESS_KEY = "ocrminio"
 MINIO_SECRET_KEY = "admin123456"
 MINIO_SECURE = False
-MINIO_BUCKET = "pdf-images"
+MINIO_BUCKET = "document"
 
 minio_client = Minio(
     MINIO_ENDPOINT,
@@ -39,7 +39,6 @@ except S3Error as e:
 
 app = FastAPI(title="PDF Processor API")
 
-# Настройка CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -64,9 +63,6 @@ class ErrorResponse(BaseModel):
     timestamp: str
 
 def pdf_to_images(pdf_content: bytes, pdf_id: str, pdf_filename: str) -> ProcessingResult:
-    """
-    Извлекает изображения из PDF и загружает их в MinIO
-    """
     images_extracted = 0
     minio_objects = []
     
@@ -141,7 +137,6 @@ async def root():
 @app.get("/health")
 async def health_check():
     try:
-        # Проверяем соединение с MinIO
         minio_client.list_buckets()
         return {"status": "healthy", "minio": "connected", "timestamp": datetime.now().isoformat()}
     except Exception as e:
@@ -152,18 +147,13 @@ async def process_pdf(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...)
 ):
-    """
-    Обрабатывает PDF файл: извлекает изображения с каждой страницы и сохраняет в MinIO
-    """
     try:
-        # Проверяем тип файла
         if not file.filename.lower().endswith('.pdf'):
             raise HTTPException(
                 status_code=400,
                 detail="Файл должен быть в формате PDF"
             )
         
-        # Читаем содержимое файла
         contents = await file.read()
         
         if len(contents) == 0:
@@ -172,10 +162,8 @@ async def process_pdf(
                 detail="PDF файл пустой"
             )
         
-        # Генерируем уникальный ID для PDF
         pdf_id = str(uuid.uuid4())
         
-        # Обрабатываем PDF
         result = pdf_to_images(contents, pdf_id, file.filename)
         
         return result
@@ -191,9 +179,6 @@ async def process_pdf(
 
 @app.post("/api/process-multiple-pdfs")
 async def process_multiple_pdfs(files: List[UploadFile] = File(...)):
-    """
-    Обрабатывает несколько PDF файлов
-    """
     results = []
     errors = []
     
@@ -234,9 +219,6 @@ async def process_multiple_pdfs(files: List[UploadFile] = File(...)):
 
 @app.get("/api/list-images/{pdf_id}")
 async def list_pdf_images(pdf_id: str):
-    """
-    Получает список изображений для конкретного PDF
-    """
     try:
         objects = minio_client.list_objects(
             MINIO_BUCKET,
