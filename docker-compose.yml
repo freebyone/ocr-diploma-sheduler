@@ -153,6 +153,29 @@ services:
       - minio
       - nginx
     restart: unless-stopped
+  ocr-processor:
+    build:
+      context: ./services/ocr_worker
+      dockerfile: Dockerfile
+    container_name: ocr-processor
+    network_mode: host
+    volumes:
+      - ./services/ocr_worker/results:/app/results
+      - ./services/ocr_worker/logs:/app/logs
+      - ./services/ocr_worker/processed_folders.txt:/app/processed_folders.txt
+    environment:
+      - MINIO_ENDPOINT=localhost:9000
+      - MINIO_ACCESS_KEY=ocrminio
+      - MINIO_SECRET_KEY=admin123456
+      - MINIO_BUCKET=document
+      - OLLAMA_URL=http://localhost:11434
+      - OLLAMA_MODEL=deepseek-ocr
+      - PROMPT_TYPE=markdown
+      - PROCESS_LIMIT=2
+      - MOVE_PROCESSED=true
+      - PROCESS_INTERVAL=60
+      - PROCESS_MODE=once  # или 'continuous' для непрерывной работы
+    restart: unless-stopped
 
 volumes:
   postgres_data:
