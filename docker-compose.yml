@@ -54,6 +54,12 @@ services:
     networks:
       - network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+      start_period: 30s
 
   minio-init:
     image: minio/mc:latest
@@ -137,6 +143,7 @@ services:
     networks:
       - network
     restart: unless-stopped
+
   pdf-processor:
     build:
       context: ./services/pdf_processor/src
@@ -153,28 +160,40 @@ services:
       - minio
       - nginx
     restart: unless-stopped
-  ocr-processor:
-    build:
-      context: ./services/ocr_worker
-      dockerfile: Dockerfile
-    container_name: ocr-processor
-    network_mode: host
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ocr-sheduler-ollama
+    ports:
+      - "11434:11434"
     volumes:
-      - ./services/ocr_worker/results:/app/results
-      - ./services/ocr_worker/logs:/app/logs
-      - ./services/ocr_worker/processed_folders.txt:/app/processed_folders.txt
+      - ollama_data:/root/.ollama
+    entrypoint: ["/bin/sh", "-c"]
+    command: |
+      "
+      ollama start &
+      sleep 10
+      ollama pull deepseek-ocr
+      tail -f /dev/null
+      "
+    networks:
+      - network
+
+  ocr-processor:
+    build: ./services/ocr_worker/
+    container_name: ocr-processor
     environment:
-      - MINIO_ENDPOINT=localhost:9000
+      - MINIO_ENDPOINT=minio:9000
       - MINIO_ACCESS_KEY=ocrminio
       - MINIO_SECRET_KEY=admin123456
-      - MINIO_BUCKET=document
-      - OLLAMA_URL=http://localhost:11434
-      - OLLAMA_MODEL=deepseek-ocr
-      - PROMPT_TYPE=markdown
-      - PROCESS_LIMIT=2
-      - MOVE_PROCESSED=true
-      - PROCESS_INTERVAL=60
-      - PROCESS_MODE=once  # или 'continuous' для непрерывной работы
+      - BUCKET_NAME=documents
+    depends_on:
+      - minio
+      - ollama
+    volumes:
+      - ./results:/app/results
+    networks:
+      - network
     restart: unless-stopped
 
 volumes:
@@ -182,6 +201,7 @@ volumes:
   kafka_data:
   minio_data:
   redis_data:
+  ollama_data:
 
 networks:
   network:
