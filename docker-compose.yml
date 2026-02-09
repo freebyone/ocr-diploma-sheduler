@@ -9,7 +9,7 @@ services:
       POSTGRES_PASSWORD: 12345678
       POSTGRES_MULTIPLE_DATABASES: "ocr_db,norma_db"
     volumes:
-      - postgres_data:/var/lib/postgresql/17/data
+      - ./infrastructure/postgres/data:/var/lib/postgresql/17/data
       - ./infrastructure/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
     networks:
       - network
