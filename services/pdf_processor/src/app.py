@@ -21,7 +21,7 @@ MINIO_ENDPOINT = "minio:9000"
 MINIO_ACCESS_KEY = "ocrminio"
 MINIO_SECRET_KEY = "admin123456"
 MINIO_SECURE = False
-MINIO_BUCKET = "document"
+MINIO_BUCKET = "documents"
 
 minio_client = Minio(
     MINIO_ENDPOINT,
