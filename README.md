@@ -9,25 +9,28 @@ docker run -it -p 81:8080 --gpus all -e port=8080 -e host=0.0.0.0 --name ocr_age
 
 
 
-## Create new_ml_agent with ollama - model deepseek-ai/DeepSeek-OCR
+## ml_agent with ollama - model deepseek-ai/DeepSeek-OCR
 
 ```
-FROM ollama/ollama
-COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
-ENTRYPOINT ["/entrypoint.sh"]
+docker-compose up -d ollama
+```
 
+## Fast start 
 
-#!/bin/bash
-set -e
-ollama start &
-sleep 10
-ollama pull deepseek-ocr
-tail -f /dev/null
+```
+docker-compose up -d 
+```
 
-docker build -t deepseek-ocr-ollama .
+## Service in project
 
-docker run -d --gpus all --name ocr-container -p 11434:11434 deepseek-ocr-ollama
-
-python ocr_image.py ./img.jpg --prompt markdown
+```
+services:
+    postgres
+    kafka
+    kafka-ui
+    minio
+    redis
+    pdf-processor
+    ollama
+    ocr-worker
 ```
