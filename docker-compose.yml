@@ -136,19 +136,20 @@ services:
       - network
     restart: unless-stopped
 
-  nginx:
-    image: nginx:alpine
-    container_name: ocr-nginx
-    ports:
-      - "80:80"
-    volumes:
-      - ./infrastructure/nginx/nginx.conf:/etc/nginx/nginx.conf
-    depends_on:
-      - minio
-      - kafka-ui
-    networks:
-      - network
-    restart: unless-stopped
+  # If need nginx loadbalancer
+  # nginx:
+  #   image: nginx:alpine
+  #   container_name: ocr-nginx
+  #   ports:
+  #     - "80:80"
+  #   volumes:
+  #     - ./infrastructure/nginx/nginx.conf:/etc/nginx/nginx.conf
+  #   depends_on:
+  #     - minio
+  #     - kafka-ui
+  #   networks:
+  #     - network
+  #   restart: unless-stopped
 
   redis:
     image: redis:7-alpine
