@@ -115,7 +115,7 @@ class OCRProcessor:
             with open(local_path, "rb") as image_file:
                 base64_image = base64.b64encode(image_file.read()).decode('utf-8')
             
-            prompt = "<|grounding|>Convert the document to markdown."
+            prompt = "Describe this image in detail."
             
             payload = {
                 "model": self.model,

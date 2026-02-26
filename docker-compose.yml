@@ -9,11 +9,17 @@ services:
       POSTGRES_PASSWORD: 12345678
       POSTGRES_MULTIPLE_DATABASES: "ocr_db,norma_db"
     volumes:
-      - ./infrastructure/postgres/data:/var/lib/postgresql/17/data
+      - postgres_data:/var/lib/postgresql/data
       - ./infrastructure/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
     networks:
       - network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   kafka:
     image: bitnamilegacy/kafka:4.0.0-debian-12-r10
@@ -65,42 +71,54 @@ services:
     image: minio/mc:latest
     container_name: ocr-minio-init
     depends_on:
-      - minio
+      minio:
+        condition: service_healthy
     networks:
       - network
     entrypoint: >
       /bin/sh -c "
-      echo 'Waiting for MinIO to start...';
-      until nc -z minio 9000; do sleep 2; done;
-      sleep 5;
+      echo 'Configuring MinIO...';
+      sleep 3;
+
       mc alias set localminio http://minio:9000 ocrminio admin123456;
+
       mc mb localminio/documents --ignore-existing;
       mc mb localminio/templates --ignore-existing;
+      mc mb localminio/results --ignore-existing;
+      mc mb localminio/errors --ignore-existing;
+
       mc anonymous set download localminio/documents;
       mc anonymous set none localminio/templates;
-      mc admin user add localminio appuser apppassword123;
-      cat > /tmp/readwrite.json << 'EOF'
-      {
+      mc anonymous set none localminio/results;
+      mc anonymous set none localminio/errors;
+
+      mc admin user add localminio appuser apppassword123 || true;
+
+      echo 'Creating policy...';
+
+      echo '{
         \"Version\": \"2012-10-17\",
-        \"Statement\": [
-          {
-            \"Effect\": \"Allow\",
-            \"Action\": [
-              \"s3:GetObject\",
-              \"s3:PutObject\",
-              \"s3:DeleteObject\",
-              \"s3:ListBucket\"
-            ],
-            \"Resource\": [
-              \"arn:aws:s3:::documents/*\",
-              \"arn:aws:s3:::templates/*\"
-            ]
-          }
-        ]
-      }
-      EOF
-      mc admin policy create localminio readwrite /tmp/readwrite.json;
-      mc admin policy attach localminio readwrite --user=appuser;
+        \"Statement\": [{
+          \"Effect\": \"Allow\",
+          \"Action\": [
+            \"s3:GetObject\",
+            \"s3:PutObject\",
+            \"s3:DeleteObject\",
+            \"s3:ListBucket\"
+          ],
+          \"Resource\": [
+            \"arn:aws:s3:::documents/*\",
+            \"arn:aws:s3:::templates/*\",
+            \"arn:aws:s3:::results/*\",
+            \"arn:aws:s3:::errors/*\"
+          ]
+        }]
+      }' > /tmp/readwrite.json;
+
+      mc admin policy create localminio readwrite /tmp/readwrite.json || true;
+      mc admin policy attach localminio readwrite --user appuser;
+
+      echo 'MinIO init complete';
       "
     restart: "no"
 
@@ -193,7 +211,25 @@ services:
       - minio
       - ollama
     volumes:
-      - ./service/ocr_worker/results:/app/results
+      - ./services/ocr_worker/results:/app/results
+    networks:
+      - network
+    restart: unless-stopped
+
+  parser-service:
+    build: ./services/parser_service/
+    container_name: ocr-parser-service
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ocrminio
+      MINIO_SECRET_KEY: admin123456
+      DATABASE_URL: postgresql://ocr_user:ocr_password@postgres:5432/ocr_db
+      POLL_INTERVAL: "30"
     networks:
       - network
     restart: unless-stopped
