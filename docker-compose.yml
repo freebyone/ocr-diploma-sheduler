@@ -177,7 +177,6 @@ services:
       - ./services/pdf_processor/src/logs:/app/logs
     depends_on:
       - minio
-      - nginx
     restart: unless-stopped
 
   ollama:
@@ -233,6 +232,27 @@ services:
       POLL_INTERVAL: "30"
     networks:
       - network
+    restart: unless-stopped
+
+  word-parser:
+    build: ./services/word_parser/
+    container_name: word-parser-service
+    ports:
+      - "8001:8001"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: 12345678
+      DB_NAME: ocr_db
+      DEBUG: "true"
+    volumes:
+      - ./app:/app/app
+    networks:
+      - network
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:

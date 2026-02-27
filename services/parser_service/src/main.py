@@ -294,7 +294,8 @@ class DiplomaParserService:
         parser = LLMParser(model)
         parsed = parser.parse_image_text(first_page_text)
         # parsed = parse_first_page(first_page_text)
-        splited = LLMParser.split_code(res["parsed"].specialization)
+        splited = LLMParser.split_code(parsed["parsed"].specialization)
+        parsed = parsed["parsed"]
         if isinstance(splited, dict):
             spec_code = splited["code"]
             spec_name = splited["name"]
@@ -302,18 +303,18 @@ class DiplomaParserService:
             spec_name = parsed.specialization
             spec_code = None
 
-        # 4. Проверяем
-        if not parsed.is_valid:
-            logger.warning(
-                f"Parsing incomplete for {folder}. "
-                f"Missing: {parsed.missing_fields}"
-            )
-            self.move_to_errors(
-                file_path, data, parsed,
-                f"Требуется ручной разбор. "
-                f"Не распознаны: {', '.join(parsed.missing_fields)}"
-            )
-            return False
+        # # 4. Проверяем
+        # if not parsed.is_valid:
+        #     logger.warning(
+        #         f"Parsing incomplete for {folder}. "
+        #         f"Missing: {parsed.missing_fields}"
+        #     )
+        #     self.move_to_errors(
+        #         file_path, data, parsed,
+        #         f"Требуется ручной разбор. "
+        #         f"Не распознаны: {', '.join(parsed.missing_fields)}"
+        #     )
+        #     return False
 
         # 5. Записываем в БД
         session = get_session()

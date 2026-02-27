@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Загрузка PDF и Excel файлов</title>
+    <title>Загрузка PDF и Word файлов</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         * {
@@ -361,6 +361,7 @@
             border-radius: 8px;
             margin-top: 20px;
             display: none;
+            white-space: pre-line;
         }
         
         .status-success {
@@ -406,9 +407,9 @@
 <body>
     <div class="container">
         <header>
-            <h1><i class="fas fa-file-upload"></i> Загрузка PDF и Excel файлов</h1>
+            <h1><i class="fas fa-file-upload"></i> Загрузка PDF и Word файлов</h1>
             <p class="description">
-                Выберите тип файлов для загрузки: PDF (макс. 10MB) или Excel. 
+                Выберите тип файлов для загрузки: PDF (макс. 10MB) или Word документы с приказами о переаттестации. 
                 Файлы будут отправлены на соответствующие Python API для обработки.
             </p>
         </header>
@@ -418,8 +419,8 @@
             <button class="tab active" data-tab="pdf">
                 <i class="fas fa-file-pdf"></i> PDF файлы
             </button>
-            <button class="tab" data-tab="excel">
-                <i class="fas fa-file-excel"></i> Excel файлы
+            <button class="tab" data-tab="word">
+                <i class="fas fa-file-word"></i> Word файлы
             </button>
         </div>
         
@@ -444,23 +445,23 @@
             </div>
         </div>
         
-        <!-- Контент Excel таба -->
-        <div id="excel-tab" class="tab-content">
-            <div class="upload-area" id="excel-upload-area">
+        <!-- Контент Word таба -->
+        <div id="word-tab" class="tab-content">
+            <div class="upload-area" id="word-upload-area">
                 <div class="upload-icon">
                     <i class="fas fa-cloud-upload-alt"></i>
                 </div>
-                <h3>Загрузите Excel файлы</h3>
+                <h3>Загрузите Word файлы с приказами о переаттестации</h3>
                 <p>Перетащите файлы сюда или нажмите для выбора</p>
-                <p>Поддерживаемые форматы: .xlsx, .xls</p>
-                <input type="file" id="excel-files" class="file-input" accept=".xlsx,.xls" multiple>
+                <p>Поддерживаемые форматы: .docx, .doc</p>
+                <input type="file" id="word-files" class="file-input" accept=".docx,.doc" multiple>
             </div>
             
-            <div id="excel-status" class="status-message"></div>
+            <div id="word-status" class="status-message"></div>
             
             <div class="process-buttons">
-                <button class="btn btn-primary btn-large" onclick="sendExcelFiles()">
-                    <i class="fas fa-paper-plane"></i> Отправить на xlsx_processor API
+                <button class="btn btn-primary btn-large" onclick="sendWordFiles()">
+                    <i class="fas fa-paper-plane"></i> Отправить на word_parser API
                 </button>
             </div>
         </div>
@@ -499,7 +500,7 @@
     <script>
         // Глобальные переменные
         let pdfFiles = [];
-        let excelFiles = [];
+        let wordFiles = [];
         let currentTab = 'pdf';
         
         // Инициализация при загрузке страницы
@@ -533,6 +534,7 @@
                     
                     currentTab = tabId;
                     updateFileCounter();
+                    updateModalFileList();
                 });
             });
         }
@@ -570,36 +572,35 @@
                 e.target.value = '';
             });
             
-            // Excel загрузка
-            const excelArea = document.getElementById('excel-upload-area');
-            const excelInput = document.getElementById('excel-files');
+            // Word загрузка
+            const wordArea = document.getElementById('word-upload-area');
+            const wordInput = document.getElementById('word-files');
             
-            excelArea.addEventListener('click', () => excelInput.click());
-            excelArea.addEventListener('dragover', (e) => {
+            wordArea.addEventListener('click', () => wordInput.click());
+            wordArea.addEventListener('dragover', (e) => {
                 e.preventDefault();
-                excelArea.style.borderColor = '#2980b9';
-                excelArea.style.backgroundColor = '#e3f2fd';
+                wordArea.style.borderColor = '#2980b9';
+                wordArea.style.backgroundColor = '#e3f2fd';
             });
-            excelArea.addEventListener('dragleave', () => {
-                excelArea.style.borderColor = '#3498db';
-                excelArea.style.backgroundColor = '#f8fcff';
+            wordArea.addEventListener('dragleave', () => {
+                wordArea.style.borderColor = '#3498db';
+                wordArea.style.backgroundColor = '#f8fcff';
             });
-            excelArea.addEventListener('drop', (e) => {
+            wordArea.addEventListener('drop', (e) => {
                 e.preventDefault();
-                excelArea.style.borderColor = '#3498db';
-                excelArea.style.backgroundColor = '#f8fcff';
+                wordArea.style.borderColor = '#3498db';
+                wordArea.style.backgroundColor = '#f8fcff';
                 
                 const files = Array.from(e.dataTransfer.files).filter(file => 
-                    file.type.includes('spreadsheet') || 
-                    file.name.toLowerCase().endsWith('.xlsx') || 
-                    file.name.toLowerCase().endsWith('.xls')
+                    file.name.toLowerCase().endsWith('.docx') || 
+                    file.name.toLowerCase().endsWith('.doc')
                 );
                 
-                handleExcelFiles(files);
+                handleWordFiles(files);
             });
             
-            excelInput.addEventListener('change', (e) => {
-                handleExcelFiles(Array.from(e.target.files));
+            wordInput.addEventListener('change', (e) => {
+                handleWordFiles(Array.from(e.target.files));
                 e.target.value = '';
             });
         }
@@ -642,38 +643,33 @@
             updateModalFileList();
         }
         
-        // Обработка Excel файлов
-        function handleExcelFiles(files) {
+        // Обработка Word файлов
+        function handleWordFiles(files) {
             const validFiles = [];
             const invalidFiles = [];
             
             files.forEach(file => {
-                // Проверка типа
-                const isExcel = file.type.includes('spreadsheet') || 
-                               file.name.toLowerCase().endsWith('.xlsx') || 
-                               file.name.toLowerCase().endsWith('.xls');
+                const isWord = file.name.toLowerCase().endsWith('.docx') || 
+                              file.name.toLowerCase().endsWith('.doc');
                 
-                if (!isExcel) {
-                    invalidFiles.push({file, reason: 'Не Excel файл'});
+                if (!isWord) {
+                    invalidFiles.push({file, reason: 'Не Word файл'});
                 }
-                // Проверка дубликатов
-                else if (excelFiles.some(f => f.name === file.name && f.size === file.size)) {
+                else if (wordFiles.some(f => f.name === file.name && f.size === file.size)) {
                     invalidFiles.push({file, reason: 'Файл уже добавлен'});
                 } else {
                     validFiles.push(file);
                 }
             });
             
-            // Добавляем валидные файлы
-            excelFiles.push(...validFiles);
+            wordFiles.push(...validFiles);
             
-            // Показываем сообщения об ошибках
             if (invalidFiles.length > 0) {
-                showStatus('excel', `Некоторые файлы не были добавлены: ${invalidFiles.length}`, 'error');
+                showStatus('word', `Некоторые файлы не были добавлены: ${invalidFiles.length}`, 'error');
             }
             
             if (validFiles.length > 0) {
-                showStatus('excel', `Добавлено Excel файлов: ${validFiles.length}`, 'success');
+                showStatus('word', `Добавлено Word файлов: ${validFiles.length}`, 'success');
             }
             
             updateFileCounter();
@@ -684,8 +680,8 @@
         function removeFile(fileName, fileType) {
             if (fileType === 'pdf') {
                 pdfFiles = pdfFiles.filter(file => file.name !== fileName);
-            } else {
-                excelFiles = excelFiles.filter(file => file.name !== fileName);
+            } else if (fileType === 'word') {
+                wordFiles = wordFiles.filter(file => file.name !== fileName);
             }
             
             updateFileCounter();
@@ -698,8 +694,8 @@
             
             if (currentTab === 'pdf') {
                 totalFiles = pdfFiles.length;
-            } else {
-                totalFiles = excelFiles.length;
+            } else if (currentTab === 'word') {
+                totalFiles = wordFiles.length;
             }
             
             document.getElementById('counter').textContent = totalFiles;
@@ -731,10 +727,14 @@
             
             // Определяем, какие файлы показывать
             let filesToShow = [];
+            let fileType = '';
+            
             if (currentTab === 'pdf') {
                 filesToShow = pdfFiles;
-            } else {
-                filesToShow = excelFiles;
+                fileType = 'pdf';
+            } else if (currentTab === 'word') {
+                filesToShow = wordFiles;
+                fileType = 'word';
             }
             
             if (filesToShow.length === 0) {
@@ -745,9 +745,8 @@
             // Добавляем файлы в список
             filesToShow.forEach(file => {
                 const fileSize = (file.size / (1024 * 1024)).toFixed(2);
-                const fileType = currentTab === 'pdf' ? 'pdf' : 'excel';
-                const iconClass = fileType === 'pdf' ? 'fa-file-pdf' : 'fa-file-excel';
-                const iconColor = fileType === 'pdf' ? '#e74c3c' : '#2ecc71';
+                const iconClass = fileType === 'pdf' ? 'fa-file-pdf' : 'fa-file-word';
+                const iconColor = fileType === 'pdf' ? '#e74c3c' : '#2b5797';
                 
                 const fileItem = document.createElement('div');
                 fileItem.className = 'file-item';
@@ -775,9 +774,9 @@
             if (currentTab === 'pdf') {
                 pdfFiles = [];
                 showStatus('pdf', 'Все PDF файлы удалены', 'info');
-            } else {
-                excelFiles = [];
-                showStatus('excel', 'Все Excel файлы удалены', 'info');
+            } else if (currentTab === 'word') {
+                wordFiles = [];
+                showStatus('word', 'Все Word файлы удалены', 'info');
             }
             
             updateFileCounter();
@@ -808,8 +807,8 @@
             const formData = new FormData();
             
             // Добавляем все файлы
-            pdfFiles.forEach((file, index) => {
-                formData.append(`files`, file);
+            pdfFiles.forEach((file) => {
+                formData.append('files', file);
             });
             
             try {
@@ -835,19 +834,21 @@
                 }
                 
                 // Добавляем детали по каждому файлу
-                result.results.forEach((res, index) => {
-                    message += `\n${index + 1}. ${res.pdf_name}:\n`;
-                    message += `   • Страниц: ${res.pages_count}\n`;
-                    message += `   • Изображений извлечено: ${res.images_extracted}\n`;
-                    
-                    if (res.pages_count === 0) {
-                        message += `   ⚠️ PDF не содержит страниц!\n`;
-                    } else {
-                        message += `   ✅ Изображения сохранены в MinIO\n`;
-                        message += `   📁 Bucket: ${res.bucket}\n`;
-                        message += `   🆔 ID: ${res.pdf_id}\n`;
-                    }
-                });
+                if (result.results) {
+                    result.results.forEach((res, index) => {
+                        message += `\n${index + 1}. ${res.pdf_name}:\n`;
+                        message += `   • Страниц: ${res.pages_count}\n`;
+                        message += `   • Изображений извлечено: ${res.images_extracted}\n`;
+                        
+                        if (res.pages_count === 0) {
+                            message += `   ⚠️ PDF не содержит страниц!\n`;
+                        } else {
+                            message += `   ✅ Изображения сохранены в MinIO\n`;
+                            message += `   📁 Bucket: ${res.bucket}\n`;
+                            message += `   🆔 ID: ${res.pdf_id}\n`;
+                        }
+                    });
+                }
                 
                 if (result.errors && result.errors.length > 0) {
                     message += `\nОшибки:\n`;
@@ -869,43 +870,72 @@
             }
         }
         
-        // Отправка Excel файлов на API
-        async function sendExcelFiles() {
-            if (excelFiles.length === 0) {
-                showStatus('excel', 'Нет файлов для отправки', 'error');
+        // Отправка Word файлов на API
+        async function sendWordFiles() {
+            if (wordFiles.length === 0) {
+                showStatus('word', 'Нет файлов для отправки', 'error');
                 return;
             }
             
-            showStatus('excel', 'Отправка файлов на xlsx_processor API...', 'info');
+            showStatus('word', 'Отправка и обработка Word файлов...', 'info');
             
             const formData = new FormData();
-            
-            // Добавляем файлы
-            excelFiles.forEach((file, index) => {
-                formData.append(`excel_${index}`, file);
+            wordFiles.forEach(file => {
+                formData.append('files', file);
             });
             
             try {
-                // Отправка на Python API xlsx_processor
-                const response = await fetch('/api/xlsx_processor', {
+                const response = await fetch('http://localhost:8001/api/parse-multiple-word', {
                     method: 'POST',
                     body: formData
                 });
                 
                 if (!response.ok) {
-                    throw new Error(`Ошибка сервера: ${response.status}`);
+                    const errorData = await response.json();
+                    throw new Error(errorData.detail || `Ошибка сервера: ${response.status}`);
                 }
                 
                 const result = await response.json();
-                showStatus('excel', `Успешно отправлено! Обработано файлов: ${excelFiles.length}`, 'success');
                 
-                // Очищаем файлы после успешной отправки
-                excelFiles = [];
+                let message = `✅ Обработка завершена!\n`;
+                message += `📊 Успешно обработано: ${result.successful} файлов\n`;
+                message += `❌ Не удалось обработать: ${result.failed} файлов\n\n`;
+                message += `📈 Всего создано записей: ${result.total_stats.control_tables}\n`;
+                
+                if (result.total_stats.universities > 0) {
+                    message += `🏫 Университетов: ${result.total_stats.universities}\n`;
+                    message += `📚 Направлений: ${result.total_stats.directions}\n`;
+                    message += `📋 Специализаций: ${result.total_stats.specializations}\n`;
+                    message += `📖 Учебных программ: ${result.total_stats.study_programs}\n`;
+                }
+                
+                if (result.results) {
+                    message += `\n📋 Детали по файлам:\n`;
+                    result.results.forEach((r, index) => {
+                        if (r.success) {
+                            message += `\n✅ ${index + 1}. ${r.filename}: ${r.stats.control_tables} записей`;
+                        } else {
+                            message += `\n❌ ${index + 1}. ${r.filename}: ${r.error}`;
+                        }
+                    });
+                }
+                
+                if (result.total_stats.errors && result.total_stats.errors.length > 0) {
+                    message += `\n\n⚠️ Ошибки:\n`;
+                    result.total_stats.errors.forEach(err => {
+                        message += `• ${err}\n`;
+                    });
+                }
+                
+                showStatus('word', message, 'success');
+                
+                // Очищаем файлы после успешной обработки
+                wordFiles = [];
                 updateFileCounter();
                 updateModalFileList();
                 
             } catch (error) {
-                showStatus('excel', `Ошибка отправки: ${error.message}`, 'error');
+                showStatus('word', `❌ Ошибка обработки: ${error.message}`, 'error');
                 console.error('Ошибка:', error);
             }
         }
