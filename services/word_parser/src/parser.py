@@ -16,10 +16,6 @@ logger = logging.getLogger(__name__)
 
 
 class WordParser:
-    """
-    Парсер Word-документов с таблицами переаттестации.
-    Работает напрямую с doc.tables (python-docx).
-    """
 
     def __init__(self, session: Session):
         self.session = session
@@ -60,7 +56,7 @@ class WordParser:
         return instance
 
     # ---------------------------------------------------
-    # Извлечение блоков (университет + специальность)
+    # Извлечение блоков
     # ---------------------------------------------------
     def extract_blocks(self, paragraphs: List[str]) -> List[Dict[str, str]]:
         blocks = []
@@ -98,10 +94,6 @@ class WordParser:
 
         blocks = self.extract_blocks(paragraphs)
 
-        if not blocks:
-            logger.warning("Не найдено ни одного блока 'прослушанных в'")
-            return self.stats
-
         logger.info(f"Найдено блоков: {len(blocks)}")
         logger.info(f"Найдено таблиц: {len(tables)}")
 
@@ -128,11 +120,7 @@ class WordParser:
 
                 table = tables[index]
 
-                # пропускаем шапку
-                for row in table[1:]:
-                    if len(row) < 7:
-                        continue
-
+                for row in table:
                     self.save_control_record(specialization, row)
 
                 self.session.commit()
@@ -145,7 +133,7 @@ class WordParser:
         return self.stats
 
     # ---------------------------------------------------
-    # Сохранение строки таблицы
+    # ✅ Сохранение строки таблицы
     # ---------------------------------------------------
     def save_control_record(
         self,
@@ -153,17 +141,40 @@ class WordParser:
         row: List[str],
     ):
         try:
-            discipline = row[0]
-            hours_norm = row[1]
-            form_norm = row[2]
-            hours_fact = row[3]
-            form_fact = row[4]
-            hours_retest = row[5]
-            form_retest = row[6]
+            if len(row) < 7:
+                return
+
+            discipline = row[0].strip()
+            hours_norm = row[1].strip()
+            form_norm = row[2].strip()
+            hours_fact = row[3].strip()
+            form_fact = row[4].strip()
+            hours_retest = row[5].strip()
+            form_retest = row[6].strip()
+
+            # -------------------------------
+            # ✅ Фильтрация заголовков
+            # -------------------------------
+            header_keywords = [
+                "наименование",
+                "дисциплины",
+                "к-во",
+                "часов",
+                "форма",
+                "контроля",
+            ]
+
+            lower_row = " ".join(row).lower()
+
+            if any(word in lower_row for word in header_keywords):
+                return
 
             if not discipline:
                 return
 
+            # -------------------------------
+            # Создание связанных сущностей
+            # -------------------------------
             program = self.get_or_create(
                 StudyProgram, name=discipline
             )
