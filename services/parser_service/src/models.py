@@ -12,7 +12,7 @@ class Direction(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(
-        String(200), nullable=False, comment='Наименование направления'
+        String(200), nullable=False, comment='Квалификация'
     )
 
     specializations: Mapped[List["Specialization"]] = relationship(
@@ -45,6 +45,9 @@ class Specialization(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(
         String(200), nullable=False, comment='Наименование специальности'
+    )
+    code: Mapped[str] = mapped_column(
+        String(200), nullable=False, comment='Код специальности'
     )
     direction_id: Mapped[int] = mapped_column(
         ForeignKey('directions.id'), nullable=False, comment='ID Направления'
