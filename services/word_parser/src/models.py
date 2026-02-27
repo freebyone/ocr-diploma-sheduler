@@ -48,18 +48,18 @@ class Specialization(Base):
     name: Mapped[str] = mapped_column(
         String(200), nullable=False, comment='Наименование специальности'
     )
-    code: Mapped[str] = mapped_column(
-        String(200), nullable=False, default='', comment='Код специальности'
+    code: Mapped[Optional[str]] = mapped_column(
+        String(200), nullable=True, default='', comment='Код специальности'
     )
-    direction_id: Mapped[int] = mapped_column(
-        ForeignKey('directions.id'), nullable=False, comment='ID Направления'
+    direction_id: Mapped[Optional[int]] = mapped_column(  # Сделали опциональным
+        ForeignKey('directions.id'), nullable=True, comment='ID Направления'
     )
     university_id: Mapped[int] = mapped_column(
         ForeignKey('university.id'), nullable=False,
         comment='ID Учебного заведения'
     )
 
-    direction: Mapped["Direction"] = relationship(
+    direction: Mapped[Optional["Direction"]] = relationship(  # Опционально
         back_populates="specializations"
     )
     university: Mapped["University"] = relationship(
@@ -153,50 +153,51 @@ class ControlTable(Base):
     __tablename__ = 'control_table'
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    specialization_id: Mapped[int] = mapped_column(
-        ForeignKey('specialization.id'), nullable=False,
+    specialization_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey('specialization.id'), nullable=True,
         comment='ID Специализации'
     )
-    study_program_id: Mapped[int] = mapped_column(
-        ForeignKey('study_program.id'), nullable=False,
+    study_program_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey('study_program.id'), nullable=True,
         comment='ID Предмета'
     )
-    format_control_norma_id: Mapped[int] = mapped_column(
-        ForeignKey('format_control.id'), nullable=False,
+    format_control_norma_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey('format_control.id'), nullable=True,
         comment='ID Формат контроля НОРМА'
     )
-    format_control_fact_id: Mapped[int] = mapped_column(
-        ForeignKey('format_control.id'), nullable=False,
+    format_control_fact_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey('format_control.id'), nullable=True,
         comment='ID Формат контроля ФАКТ'
     )
-    format_retests_id: Mapped[int] = mapped_column(
-        ForeignKey('format_retests.id'), nullable=False,
+    format_retests_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey('format_retests.id'), nullable=True,
         comment='ID Формат переатестации'
     )
-    hours_fact: Mapped[str] = mapped_column(
-        String(200), nullable=False, comment='Часы ФАКТ'
+    hours_fact: Mapped[Optional[str]] = mapped_column(
+        String(200), nullable=True, comment='Часы ФАКТ'
     )
-    hours_normal: Mapped[str] = mapped_column(
-        String(200), nullable=False, comment='Часы НОРМА'
+    hours_normal: Mapped[Optional[str]] = mapped_column(
+        String(200), nullable=True, comment='Часы НОРМА'
     )
 
-    specialization: Mapped["Specialization"] = relationship(
+    specialization: Mapped[Optional["Specialization"]] = relationship(
         back_populates="control_tables"
     )
-    study_program: Mapped["StudyProgram"] = relationship(
+    study_program: Mapped[Optional["StudyProgram"]] = relationship(
         back_populates="control_tables"
     )
-    format_control_norma: Mapped["FormatControl"] = relationship(
+    format_control_norma: Mapped[Optional["FormatControl"]] = relationship(
         back_populates="control_tables_norma",
         foreign_keys=[format_control_norma_id]
     )
-    format_control_fact: Mapped["FormatControl"] = relationship(
+    format_control_fact: Mapped[Optional["FormatControl"]] = relationship(
         back_populates="control_tables_fact",
         foreign_keys=[format_control_fact_id]
     )
-    format_retests: Mapped["FormatRetests"] = relationship(
+    format_retests: Mapped[Optional["FormatRetests"]] = relationship(
         back_populates="control_tables"
     )
     
     def __repr__(self) -> str:
-        return f"<ControlTable(id={self.id}, program='{self.study_program.name}')>"
+        program_name = self.study_program.name if self.study_program else "None"
+        return f"<ControlTable(id={self.id}, program='{program_name}')>"

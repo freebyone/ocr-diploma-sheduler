@@ -3,8 +3,8 @@ import logging
 from typing import List, Tuple, Optional, Dict, Any
 from sqlalchemy.orm import Session
 
-# Меняем на абсолютные импорты
-from app.models import (
+# Исправляем импорты - убираем 'app.'
+from models import (
     University, Direction, Specialization, 
     FormatControl, FormatRetests, StudyProgram, ControlTable
 )
@@ -173,8 +173,8 @@ class WordParser:
                 specialization = self.get_or_create(
                     Specialization,
                     name=spec_name,
-                    code='',
-                    direction_id=direction.id,
+                    code='',  # код пока не известен
+                    direction_id=None,  # или можно вообще не передавать
                     university_id=university.id
                 )
                 

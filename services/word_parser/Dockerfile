@@ -13,8 +13,8 @@ COPY requirements.txt .
 # Установка Python зависимостей
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Копирование кода приложения прямо в корень
-COPY src/ ./app
+# Копирование кода приложения прямо в корень /app
+COPY src/ ./
 
 # Создание непривилегированного пользователя
 RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app

@@ -247,7 +247,7 @@ services:
       DB_NAME: ocr_db
       DEBUG: "true"
     volumes:
-      - ./app:/app/app
+      - ./services/word_parser/src:/app
     networks:
       - network
     depends_on:

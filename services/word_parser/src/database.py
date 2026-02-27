@@ -4,9 +4,9 @@ from sqlalchemy.exc import SQLAlchemyError
 from typing import Generator
 import logging
 
-# Меняем на абсолютные импорты
-from app.config import get_settings
-from app.models import Base
+# Исправляем импорты - убираем 'app.'
+from config import get_settings
+from models import Base
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
