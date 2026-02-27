@@ -47,7 +47,7 @@ class Specialization(Base):
         String(200), nullable=False, comment='Наименование специальности'
     )
     code: Mapped[str] = mapped_column(
-        String(200), nullable=False, comment='Код специальности'
+        String(200), comment='Код специальности'
     )
     direction_id: Mapped[int] = mapped_column(
         ForeignKey('directions.id'), nullable=False, comment='ID Направления'

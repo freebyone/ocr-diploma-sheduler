@@ -293,7 +293,14 @@ class DiplomaParserService:
         # 3. Парсим
         parser = LLMParser(model)
         parsed = parser.parse_image_text(first_page_text)
-        parsed = parse_first_page(first_page_text)
+        # parsed = parse_first_page(first_page_text)
+        splited = LLMParser.split_code(res["parsed"].specialization)
+        if isinstance(splited, dict):
+            spec_code = splited["code"]
+            spec_name = splited["name"]
+        else:
+            spec_name = parsed.specialization
+            spec_code = None
 
         # 4. Проверяем
         if not parsed.is_valid:
@@ -316,7 +323,8 @@ class DiplomaParserService:
                 full_name=parsed.full_name,
                 direction_name=parsed.direction,
                 university_name=parsed.university,
-                specialization_name=parsed.specialization
+                specialization_name=spec_name,
+                specialization_code=spec_code,
             )
             session.commit()
 

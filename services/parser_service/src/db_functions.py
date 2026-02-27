@@ -117,7 +117,7 @@ def get_specialization_full(
 
 
 def get_or_create_specialization(
-    session: Session, name: str, direction_id: int, university_id: int
+    session: Session, name: str, direction_id: int, university_id: int, specialization_code: str
 ) -> Specialization:
     spec = get_specialization_full(session, name, direction_id, university_id)
     if spec:
@@ -127,7 +127,8 @@ def get_or_create_specialization(
     spec = Specialization(
         name=name,
         direction_id=direction_id,
-        university_id=university_id
+        university_id=university_id,
+        code = specialization_code
     )
     session.add(spec)
     session.flush()
@@ -335,7 +336,8 @@ def save_diploma_data(
     full_name: str,
     direction_name: str,
     university_name: str,
-    specialization_name: str
+    specialization_name: str,
+    specialization_code: str
 ) -> dict:
     """
     Сохраняет данные диплома в БД.
@@ -347,6 +349,7 @@ def save_diploma_data(
     logger.info(f"  Direction:      {direction_name}")
     logger.info(f"  University:     {university_name}")
     logger.info(f"  Specialization: {specialization_name}")
+    logger.info(f"  Specialization CODE: {specialization_code}")
 
     # 1. Направление
     direction = get_or_create_direction(session, direction_name)
@@ -356,7 +359,7 @@ def save_diploma_data(
 
     # 3. Специализация
     specialization = get_or_create_specialization(
-        session, specialization_name, direction.id, university.id
+        session, specialization_name, specialization_code, direction.id, university.id
     )
 
     # 4. Студент
