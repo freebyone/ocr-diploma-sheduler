@@ -17,6 +17,11 @@ import logging
 import traceback
 from typing import List, Dict, Optional
 
+# ==LLM==
+from langchain_gigachat.chat_models import GigaChat
+from ocr_llm_parser import LLMParser, ParsedStudent
+# ==LLM==
+
 from minio import Minio
 
 import config
@@ -31,6 +36,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+model = GigaChat(
+        model="GigaChat-2",
+        credentials=config.MODEL_KEY,
+        verify_ssl_certs=False,
+        top_p=0,
+        temperature=0.1
+    )
 
 class DiplomaParserService:
 
@@ -279,6 +291,8 @@ class DiplomaParserService:
             return False
 
         # 3. Парсим
+        parser = LLMParser(model)
+        parsed = parser.parse_image_text(first_page_text)
         parsed = parse_first_page(first_page_text)
 
         # 4. Проверяем
