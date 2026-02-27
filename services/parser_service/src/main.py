@@ -294,27 +294,18 @@ class DiplomaParserService:
         parser = LLMParser(model)
         parsed = parser.parse_image_text(first_page_text)
         # parsed = parse_first_page(first_page_text)
-        splited = LLMParser.split_code(parsed["parsed"].specialization)
-        parsed = parsed["parsed"]
-        if isinstance(splited, dict):
-            spec_code = splited["code"]
-            spec_name = splited["name"]
-        else:
-            spec_name = parsed.specialization
-            spec_code = None
-
-        # # 4. Проверяем
-        # if not parsed.is_valid:
-        #     logger.warning(
-        #         f"Parsing incomplete for {folder}. "
-        #         f"Missing: {parsed.missing_fields}"
-        #     )
-        #     self.move_to_errors(
-        #         file_path, data, parsed,
-        #         f"Требуется ручной разбор. "
-        #         f"Не распознаны: {', '.join(parsed.missing_fields)}"
-        #     )
-        #     return False
+        # 4. Проверяем
+        if not parsed.is_valid:
+            logger.warning(
+                f"Parsing incomplete for {folder}. "
+                f"Missing: {parsed.missing_fields}"
+            )
+            self.move_to_errors(
+                file_path, data, parsed,
+                f"Требуется ручной разбор. "
+                f"Не распознаны: {', '.join(parsed.missing_fields)}"
+            )
+            return False
 
         # 5. Записываем в БД
         session = get_session()
@@ -324,8 +315,8 @@ class DiplomaParserService:
                 full_name=parsed.full_name,
                 direction_name=parsed.direction,
                 university_name=parsed.university,
-                specialization_name=spec_name,
-                specialization_code=spec_code,
+                specialization_name=parsed.specialization,
+                specialization_code=parsed.code,
             )
             session.commit()
 
@@ -350,7 +341,6 @@ class DiplomaParserService:
                 f"Ошибка записи в БД: {str(e)}"
             )
             return False
-
         finally:
             session.close()
 

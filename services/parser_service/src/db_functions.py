@@ -359,7 +359,7 @@ def save_diploma_data(
 
     # 3. Специализация
     specialization = get_or_create_specialization(
-        session, specialization_name, specialization_code, direction.id, university.id
+        session, specialization_name, direction.id, university.id, specialization_code
     )
 
     # 4. Студент
