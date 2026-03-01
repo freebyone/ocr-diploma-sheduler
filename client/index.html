@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Загрузка PDF и Word файлов</title>
+    <title>Загрузка PDF и Excel файлов</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         * {
@@ -91,6 +91,14 @@
             border-bottom: 3px solid #3498db;
         }
         
+        .tab[data-tab="pdf"].active {
+            border-bottom-color: #e74c3c;
+        }
+        
+        .tab[data-tab="excel"].active {
+            border-bottom-color: #27ae60;
+        }
+        
         /* Контент табов */
         .tab-content {
             display: none;
@@ -105,26 +113,48 @@
             display: block;
         }
         
+        /* Области загрузки */
         .upload-area {
             text-align: center;
             padding: 40px 20px;
-            border: 3px dashed #3498db;
+            border: 3px dashed;
             border-radius: 12px;
-            background-color: #f8fcff;
             margin-bottom: 30px;
             cursor: pointer;
             transition: all 0.3s;
         }
         
-        .upload-area:hover {
-            background-color: #f0f8ff;
-            border-color: #2980b9;
+        .upload-area.pdf {
+            border-color: #e74c3c;
+            background-color: #fdf1ef;
+        }
+        
+        .upload-area.pdf:hover {
+            background-color: #fbe9e7;
+            border-color: #c0392b;
+        }
+        
+        .upload-area.excel {
+            border-color: #27ae60;
+            background-color: #f0f9f4;
+        }
+        
+        .upload-area.excel:hover {
+            background-color: #e3f3e9;
+            border-color: #219a52;
         }
         
         .upload-icon {
             font-size: 60px;
-            color: #3498db;
             margin-bottom: 20px;
+        }
+        
+        .upload-icon.pdf {
+            color: #e74c3c;
+        }
+        
+        .upload-icon.excel {
+            color: #27ae60;
         }
         
         .upload-area h3 {
@@ -141,12 +171,11 @@
             display: none;
         }
         
+        /* Счетчик файлов */
         .file-counter {
             position: fixed;
             bottom: 30px;
             right: 30px;
-            background: #3498db;
-            color: white;
             width: 60px;
             height: 60px;
             border-radius: 50%;
@@ -156,13 +185,21 @@
             font-size: 24px;
             font-weight: bold;
             cursor: pointer;
-            box-shadow: 0 5px 15px rgba(52, 152, 219, 0.4);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
             z-index: 1000;
             transition: all 0.3s;
+            color: white;
+        }
+        
+        .file-counter.pdf {
+            background: #e74c3c;
+        }
+        
+        .file-counter.excel {
+            background: #27ae60;
         }
         
         .file-counter:hover {
-            background: #2980b9;
             transform: scale(1.1);
         }
         
@@ -196,11 +233,18 @@
         
         .modal-header {
             padding: 20px;
-            background: #3498db;
             color: white;
             display: flex;
             justify-content: space-between;
             align-items: center;
+        }
+        
+        .modal-header.pdf {
+            background: #e74c3c;
+        }
+        
+        .modal-header.excel {
+            background: #27ae60;
         }
         
         .modal-header h3 {
@@ -248,7 +292,15 @@
             padding: 15px;
             background: #f8f9fa;
             border-radius: 8px;
-            border-left: 4px solid #3498db;
+            border-left: 4px solid;
+        }
+        
+        .file-item.pdf {
+            border-left-color: #e74c3c;
+        }
+        
+        .file-item.excel {
+            border-left-color: #27ae60;
         }
         
         .file-info {
@@ -257,9 +309,12 @@
             gap: 15px;
         }
         
-        .file-icon {
-            font-size: 24px;
-            color: #2c3e50;
+        .file-icon.pdf {
+            color: #e74c3c;
+        }
+        
+        .file-icon.excel {
+            color: #27ae60;
         }
         
         .file-details h4 {
@@ -312,13 +367,27 @@
             transition: all 0.3s;
         }
         
-        .btn-primary {
-            background: #3498db;
+        .btn-primary.pdf {
+            background: #e74c3c;
             color: white;
         }
         
-        .btn-primary:hover {
-            background: #2980b9;
+        .btn-primary.pdf:hover {
+            background: #c0392b;
+        }
+        
+        .btn-primary.excel {
+            background: #27ae60;
+            color: white;
+        }
+        
+        .btn-primary.excel:hover {
+            background: #219a52;
+        }
+        
+        .btn-primary:disabled {
+            background: #bdc3c7;
+            cursor: not-allowed;
         }
         
         .btn-secondary {
@@ -339,23 +408,41 @@
             background: #c0392b;
         }
         
-        .btn:disabled {
-            background: #bdc3c7;
-            cursor: not-allowed;
+        /* Прогресс-бар */
+        .progress-container {
+            margin: 20px 0;
+            display: none;
         }
         
-        .process-buttons {
-            display: flex;
-            justify-content: center;
-            gap: 20px;
-            margin-top: 30px;
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background: #ecf0f1;
+            border-radius: 10px;
+            overflow: hidden;
         }
         
-        .btn-large {
-            padding: 16px 32px;
-            font-size: 18px;
+        .progress-fill {
+            height: 100%;
+            width: 0%;
+            transition: width 0.3s;
         }
         
+        .progress-fill.pdf {
+            background: #e74c3c;
+        }
+        
+        .progress-fill.excel {
+            background: #27ae60;
+        }
+        
+        .progress-text {
+            text-align: center;
+            margin-top: 10px;
+            color: #2c3e50;
+        }
+        
+        /* Статус сообщение */
         .status-message {
             padding: 15px;
             border-radius: 8px;
@@ -385,6 +472,18 @@
             display: block;
         }
         
+        /* Кнопки отправки */
+        .process-buttons {
+            display: flex;
+            justify-content: center;
+            margin-top: 30px;
+        }
+        
+        .btn-large {
+            padding: 16px 32px;
+            font-size: 18px;
+        }
+        
         @media (max-width: 768px) {
             .tab-content {
                 padding: 20px;
@@ -407,10 +506,10 @@
 <body>
     <div class="container">
         <header>
-            <h1><i class="fas fa-file-upload"></i> Загрузка PDF и Word файлов</h1>
+            <h1><i class="fas fa-file-upload"></i> Загрузка PDF и Excel файлов</h1>
             <p class="description">
-                Выберите тип файлов для загрузки: PDF (макс. 10MB) или Word документы с приказами о переаттестации. 
-                Файлы будут отправлены на соответствующие Python API для обработки.
+                Выберите тип файлов для загрузки: PDF для сканированных документов или Excel для учебных планов.
+                Файлы будут отправлены на соответствующие API для обработки.
             </p>
         </header>
         
@@ -419,15 +518,15 @@
             <button class="tab active" data-tab="pdf">
                 <i class="fas fa-file-pdf"></i> PDF файлы
             </button>
-            <button class="tab" data-tab="word">
-                <i class="fas fa-file-word"></i> Word файлы
+            <button class="tab" data-tab="excel">
+                <i class="fas fa-file-excel"></i> Excel файлы
             </button>
         </div>
         
         <!-- Контент PDF таба -->
         <div id="pdf-tab" class="tab-content active">
-            <div class="upload-area" id="pdf-upload-area">
-                <div class="upload-icon">
+            <div class="upload-area pdf" id="pdf-upload-area">
+                <div class="upload-icon pdf">
                     <i class="fas fa-cloud-upload-alt"></i>
                 </div>
                 <h3>Загрузите PDF файлы</h3>
@@ -436,32 +535,48 @@
                 <input type="file" id="pdf-files" class="file-input" accept=".pdf" multiple>
             </div>
             
+            <!-- Прогресс-бар для PDF -->
+            <div class="progress-container" id="pdf-progress-container">
+                <div class="progress-bar">
+                    <div class="progress-fill pdf" id="pdf-progress-fill"></div>
+                </div>
+                <div class="progress-text" id="pdf-progress-text">Обработка PDF файлов...</div>
+            </div>
+            
             <div id="pdf-status" class="status-message"></div>
             
             <div class="process-buttons">
-                <button class="btn btn-primary btn-large" onclick="sendPdfFiles()">
-                    <i class="fas fa-paper-plane"></i> Отправить на pdf_processor API
+                <button class="btn btn-primary pdf btn-large" onclick="sendPdfFiles()" id="pdf-process-btn">
+                    <i class="fas fa-play"></i> Обработать PDF файлы
                 </button>
             </div>
         </div>
         
-        <!-- Контент Word таба -->
-        <div id="word-tab" class="tab-content">
-            <div class="upload-area" id="word-upload-area">
-                <div class="upload-icon">
+        <!-- Контент Excel таба -->
+        <div id="excel-tab" class="tab-content">
+            <div class="upload-area excel" id="excel-upload-area">
+                <div class="upload-icon excel">
                     <i class="fas fa-cloud-upload-alt"></i>
                 </div>
-                <h3>Загрузите Word файлы с приказами о переаттестации</h3>
+                <h3>Загрузите Excel файлы с учебными планами</h3>
                 <p>Перетащите файлы сюда или нажмите для выбора</p>
-                <p>Поддерживаемые форматы: .docx, .doc</p>
-                <input type="file" id="word-files" class="file-input" accept=".docx,.doc" multiple>
+                <p>Поддерживаемый формат: .xlsx</p>
+                <input type="file" id="excel-files" class="file-input" accept=".xlsx" multiple>
             </div>
             
-            <div id="word-status" class="status-message"></div>
+            <!-- Прогресс-бар для Excel -->
+            <div class="progress-container" id="excel-progress-container">
+                <div class="progress-bar">
+                    <div class="progress-fill excel" id="excel-progress-fill"></div>
+                </div>
+                <div class="progress-text" id="excel-progress-text">Обработка Excel файлов...</div>
+            </div>
+            
+            <div id="excel-status" class="status-message"></div>
             
             <div class="process-buttons">
-                <button class="btn btn-primary btn-large" onclick="sendWordFiles()">
-                    <i class="fas fa-paper-plane"></i> Отправить на word_parser API
+                <button class="btn btn-primary excel btn-large" onclick="sendExcelFiles()" id="excel-process-btn">
+                    <i class="fas fa-play"></i> Обработать Excel файлы
                 </button>
             </div>
         </div>
@@ -474,8 +589,8 @@
         <!-- Модальное окно -->
         <div class="modal-overlay" id="modal-overlay">
             <div class="modal">
-                <div class="modal-header">
-                    <h3><i class="fas fa-folder-open"></i> Выбранные файлы</h3>
+                <div class="modal-header" id="modal-header">
+                    <h3><i class="fas fa-folder-open"></i> <span id="modal-title">Выбранные файлы</span></h3>
                     <button class="modal-close" onclick="hideModal()">×</button>
                 </div>
                 
@@ -500,18 +615,27 @@
     <script>
         // Глобальные переменные
         let pdfFiles = [];
-        let wordFiles = [];
+        let excelFiles = [];
         let currentTab = 'pdf';
+        
+        // Конфигурация API
+        const API_CONFIG = {
+            pdf: {
+                url: 'http://localhost:8000/api/process-multiple-pdfs',
+                maxSize: 10 * 1024 * 1024, // 10 MB
+                accept: '.pdf'
+            },
+            excel: {
+                url: 'http://localhost:8002/api/parse-multiple-excel',
+                maxSize: null, // без ограничения
+                accept: '.xlsx'
+            }
+        };
         
         // Инициализация при загрузке страницы
         document.addEventListener('DOMContentLoaded', function() {
-            // Инициализация табов
             initTabs();
-            
-            // Инициализация областей загрузки
             initUploadAreas();
-            
-            // Инициализация счетчика
             updateFileCounter();
         });
         
@@ -533,8 +657,15 @@
                     document.getElementById(`${tabId}-tab`).classList.add('active');
                     
                     currentTab = tabId;
+                    
+                    // Обновляем счетчик и модальное окно
                     updateFileCounter();
                     updateModalFileList();
+                    
+                    // Скрываем все статусы
+                    document.querySelectorAll('.status-message').forEach(el => {
+                        el.className = 'status-message';
+                    });
                 });
             });
         }
@@ -542,79 +673,57 @@
         // Инициализация областей загрузки
         function initUploadAreas() {
             // PDF загрузка
-            const pdfArea = document.getElementById('pdf-upload-area');
-            const pdfInput = document.getElementById('pdf-files');
+            initUploadArea('pdf', handlePdfFiles);
             
-            pdfArea.addEventListener('click', () => pdfInput.click());
-            pdfArea.addEventListener('dragover', (e) => {
+            // Excel загрузка
+            initUploadArea('excel', handleExcelFiles);
+        }
+        
+        function initUploadArea(type, handler) {
+            const area = document.getElementById(`${type}-upload-area`);
+            const input = document.getElementById(`${type}-files`);
+            
+            area.addEventListener('click', () => input.click());
+            
+            area.addEventListener('dragover', (e) => {
                 e.preventDefault();
-                pdfArea.style.borderColor = '#2980b9';
-                pdfArea.style.backgroundColor = '#e3f2fd';
+                area.style.backgroundColor = type === 'pdf' ? '#fbe9e7' : '#e3f3e9';
             });
-            pdfArea.addEventListener('dragleave', () => {
-                pdfArea.style.borderColor = '#3498db';
-                pdfArea.style.backgroundColor = '#f8fcff';
+            
+            area.addEventListener('dragleave', () => {
+                area.style.backgroundColor = type === 'pdf' ? '#fdf1ef' : '#f0f9f4';
             });
-            pdfArea.addEventListener('drop', (e) => {
+            
+            area.addEventListener('drop', (e) => {
                 e.preventDefault();
-                pdfArea.style.borderColor = '#3498db';
-                pdfArea.style.backgroundColor = '#f8fcff';
+                area.style.backgroundColor = type === 'pdf' ? '#fdf1ef' : '#f0f9f4';
                 
                 const files = Array.from(e.dataTransfer.files).filter(file => 
-                    file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
+                    type === 'pdf' 
+                        ? file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
+                        : file.name.toLowerCase().endsWith('.xlsx')
                 );
                 
-                handlePdfFiles(files);
+                handler(files);
             });
             
-            pdfInput.addEventListener('change', (e) => {
-                handlePdfFiles(Array.from(e.target.files));
-                e.target.value = '';
-            });
-            
-            // Word загрузка
-            const wordArea = document.getElementById('word-upload-area');
-            const wordInput = document.getElementById('word-files');
-            
-            wordArea.addEventListener('click', () => wordInput.click());
-            wordArea.addEventListener('dragover', (e) => {
-                e.preventDefault();
-                wordArea.style.borderColor = '#2980b9';
-                wordArea.style.backgroundColor = '#e3f2fd';
-            });
-            wordArea.addEventListener('dragleave', () => {
-                wordArea.style.borderColor = '#3498db';
-                wordArea.style.backgroundColor = '#f8fcff';
-            });
-            wordArea.addEventListener('drop', (e) => {
-                e.preventDefault();
-                wordArea.style.borderColor = '#3498db';
-                wordArea.style.backgroundColor = '#f8fcff';
-                
-                const files = Array.from(e.dataTransfer.files).filter(file => 
-                    file.name.toLowerCase().endsWith('.docx') || 
-                    file.name.toLowerCase().endsWith('.doc')
-                );
-                
-                handleWordFiles(files);
-            });
-            
-            wordInput.addEventListener('change', (e) => {
-                handleWordFiles(Array.from(e.target.files));
+            input.addEventListener('change', (e) => {
+                handler(Array.from(e.target.files));
                 e.target.value = '';
             });
         }
         
         // Обработка PDF файлов
         function handlePdfFiles(files) {
+            const config = API_CONFIG.pdf;
             const validFiles = [];
             const invalidFiles = [];
             
             files.forEach(file => {
-                // Проверка размера (10 MB)
-                if (file.size > 10 * 1024 * 1024) {
-                    invalidFiles.push({file, reason: 'Размер превышает 10 MB'});
-                } 
+                // Проверка размера
+                if (file.size > config.maxSize) {
+                    invalidFiles.push({file, reason: `Размер превышает ${config.maxSize / (1024*1024)} MB`});
+                }
                 // Проверка типа
                 else if (!file.type.includes('pdf') && !file.name.toLowerCase().endsWith('.pdf')) {
                     invalidFiles.push({file, reason: 'Не PDF файл'});
@@ -643,33 +752,34 @@
             updateModalFileList();
         }
         
-        // Обработка Word файлов
-        function handleWordFiles(files) {
+        // Обработка Excel файлов
+        function handleExcelFiles(files) {
             const validFiles = [];
             const invalidFiles = [];
             
             files.forEach(file => {
-                const isWord = file.name.toLowerCase().endsWith('.docx') || 
-                              file.name.toLowerCase().endsWith('.doc');
-                
-                if (!isWord) {
-                    invalidFiles.push({file, reason: 'Не Word файл'});
+                // Проверка типа
+                if (!file.name.toLowerCase().endsWith('.xlsx')) {
+                    invalidFiles.push({file, reason: 'Не Excel файл (требуется .xlsx)'});
                 }
-                else if (wordFiles.some(f => f.name === file.name && f.size === file.size)) {
+                // Проверка дубликатов
+                else if (excelFiles.some(f => f.name === file.name && f.size === file.size)) {
                     invalidFiles.push({file, reason: 'Файл уже добавлен'});
                 } else {
                     validFiles.push(file);
                 }
             });
             
-            wordFiles.push(...validFiles);
+            // Добавляем валидные файлы
+            excelFiles.push(...validFiles);
             
+            // Показываем сообщения об ошибках
             if (invalidFiles.length > 0) {
-                showStatus('word', `Некоторые файлы не были добавлены: ${invalidFiles.length}`, 'error');
+                showStatus('excel', `Некоторые файлы не были добавлены: ${invalidFiles.length}`, 'error');
             }
             
             if (validFiles.length > 0) {
-                showStatus('word', `Добавлено Word файлов: ${validFiles.length}`, 'success');
+                showStatus('excel', `Добавлено Excel файлов: ${validFiles.length}`, 'success');
             }
             
             updateFileCounter();
@@ -680,8 +790,8 @@
         function removeFile(fileName, fileType) {
             if (fileType === 'pdf') {
                 pdfFiles = pdfFiles.filter(file => file.name !== fileName);
-            } else if (fileType === 'word') {
-                wordFiles = wordFiles.filter(file => file.name !== fileName);
+            } else if (fileType === 'excel') {
+                excelFiles = excelFiles.filter(file => file.name !== fileName);
             }
             
             updateFileCounter();
@@ -690,22 +800,29 @@
         
         // Обновление счетчика файлов
         function updateFileCounter() {
+            const counter = document.getElementById('counter');
+            const counterElement = document.getElementById('file-counter');
+            
             let totalFiles = 0;
+            let fileType = '';
             
             if (currentTab === 'pdf') {
                 totalFiles = pdfFiles.length;
-            } else if (currentTab === 'word') {
-                totalFiles = wordFiles.length;
+                fileType = 'pdf';
+            } else if (currentTab === 'excel') {
+                totalFiles = excelFiles.length;
+                fileType = 'excel';
             }
             
-            document.getElementById('counter').textContent = totalFiles;
+            counter.textContent = totalFiles;
             
-            // Показываем/скрываем счетчик
-            const counter = document.getElementById('file-counter');
+            // Обновляем класс и показываем/скрываем счетчик
+            counterElement.className = `file-counter ${fileType}`;
+            
             if (totalFiles > 0) {
-                counter.style.display = 'flex';
+                counterElement.style.display = 'flex';
             } else {
-                counter.style.display = 'none';
+                counterElement.style.display = 'none';
             }
         }
         
@@ -723,6 +840,9 @@
         // Обновление списка файлов в модальном окне
         function updateModalFileList() {
             const fileList = document.getElementById('modal-file-list');
+            const modalHeader = document.getElementById('modal-header');
+            const modalTitle = document.getElementById('modal-title');
+            
             fileList.innerHTML = '';
             
             // Определяем, какие файлы показывать
@@ -732,9 +852,13 @@
             if (currentTab === 'pdf') {
                 filesToShow = pdfFiles;
                 fileType = 'pdf';
-            } else if (currentTab === 'word') {
-                filesToShow = wordFiles;
-                fileType = 'word';
+                modalHeader.className = 'modal-header pdf';
+                modalTitle.textContent = 'Выбранные PDF файлы';
+            } else if (currentTab === 'excel') {
+                filesToShow = excelFiles;
+                fileType = 'excel';
+                modalHeader.className = 'modal-header excel';
+                modalTitle.textContent = 'Выбранные Excel файлы';
             }
             
             if (filesToShow.length === 0) {
@@ -745,15 +869,14 @@
             // Добавляем файлы в список
             filesToShow.forEach(file => {
                 const fileSize = (file.size / (1024 * 1024)).toFixed(2);
-                const iconClass = fileType === 'pdf' ? 'fa-file-pdf' : 'fa-file-word';
-                const iconColor = fileType === 'pdf' ? '#e74c3c' : '#2b5797';
+                const iconClass = fileType === 'pdf' ? 'fa-file-pdf' : 'fa-file-excel';
                 
                 const fileItem = document.createElement('div');
-                fileItem.className = 'file-item';
+                fileItem.className = `file-item ${fileType}`;
                 fileItem.innerHTML = `
                     <div class="file-info">
-                        <div class="file-icon">
-                            <i class="fas ${iconClass}" style="color: ${iconColor}"></i>
+                        <div class="file-icon ${fileType}">
+                            <i class="fas ${iconClass}"></i>
                         </div>
                         <div class="file-details">
                             <h4>${file.name}</h4>
@@ -774,9 +897,9 @@
             if (currentTab === 'pdf') {
                 pdfFiles = [];
                 showStatus('pdf', 'Все PDF файлы удалены', 'info');
-            } else if (currentTab === 'word') {
-                wordFiles = [];
-                showStatus('word', 'Все Word файлы удалены', 'info');
+            } else if (currentTab === 'excel') {
+                excelFiles = [];
+                showStatus('excel', 'Все Excel файлы удалены', 'info');
             }
             
             updateFileCounter();
@@ -795,6 +918,21 @@
             }, 5000);
         }
         
+        // Показать прогресс
+        function showProgress(type, show, percent = 0, text = '') {
+            const progressContainer = document.getElementById(`${type}-progress-container`);
+            const progressFill = document.getElementById(`${type}-progress-fill`);
+            const progressText = document.getElementById(`${type}-progress-text`);
+            
+            if (show) {
+                progressContainer.style.display = 'block';
+                progressFill.style.width = percent + '%';
+                if (text) progressText.textContent = text;
+            } else {
+                progressContainer.style.display = 'none';
+            }
+        }
+        
         // Отправка PDF файлов на API
         async function sendPdfFiles() {
             if (pdfFiles.length === 0) {
@@ -802,18 +940,22 @@
                 return;
             }
             
-            showStatus('pdf', 'Отправка и обработка PDF файлов...', 'info');
+            // Блокируем кнопку
+            const processBtn = document.getElementById('pdf-process-btn');
+            processBtn.disabled = true;
+            
+            // Показываем прогресс
+            showProgress('pdf', true, 0, 'Подготовка к отправке...');
             
             const formData = new FormData();
-            
-            // Добавляем все файлы
             pdfFiles.forEach((file) => {
                 formData.append('files', file);
             });
             
             try {
-                // Отправка на PDF процессор
-                const response = await fetch('http://localhost:8000/api/process-multiple-pdfs', {
+                showProgress('pdf', true, 30, 'Отправка файлов...');
+                
+                const response = await fetch(API_CONFIG.pdf.url, {
                     method: 'POST',
                     body: formData
                 });
@@ -823,37 +965,31 @@
                     throw new Error(errorData.detail || `Ошибка сервера: ${response.status}`);
                 }
                 
+                showProgress('pdf', true, 80, 'Обработка результатов...');
+                
                 const result = await response.json();
                 
                 // Формируем подробное сообщение
-                let message = `Обработка завершена!\n`;
-                message += `Успешно обработано: ${result.processed} файлов\n`;
+                let message = `✅ Обработка завершена!\n\n`;
+                message += `📊 Успешно обработано: ${result.processed} файлов\n`;
+                message += `❌ Не удалось обработать: ${result.failed} файлов\n\n`;
                 
-                if (result.failed > 0) {
-                    message += `Не удалось обработать: ${result.failed} файлов\n`;
-                }
-                
-                // Добавляем детали по каждому файлу
                 if (result.results) {
                     result.results.forEach((res, index) => {
-                        message += `\n${index + 1}. ${res.pdf_name}:\n`;
-                        message += `   • Страниц: ${res.pages_count}\n`;
-                        message += `   • Изображений извлечено: ${res.images_extracted}\n`;
-                        
-                        if (res.pages_count === 0) {
-                            message += `   ⚠️ PDF не содержит страниц!\n`;
+                        if (res.success) {
+                            message += `✅ ${index + 1}. ${res.pdf_name}:\n`;
+                            message += `   • Страниц: ${res.pages_count}\n`;
+                            message += `   • Изображений: ${res.images_extracted}\n`;
                         } else {
-                            message += `   ✅ Изображения сохранены в MinIO\n`;
-                            message += `   📁 Bucket: ${res.bucket}\n`;
-                            message += `   🆔 ID: ${res.pdf_id}\n`;
+                            message += `❌ ${index + 1}. ${res.filename || 'Unknown'}: ${res.error}\n`;
                         }
                     });
                 }
                 
                 if (result.errors && result.errors.length > 0) {
-                    message += `\nОшибки:\n`;
+                    message += `\n⚠️ Ошибки:\n`;
                     result.errors.forEach(err => {
-                        message += `• ${err.filename}: ${err.error}\n`;
+                        message += `• ${err}\n`;
                     });
                 }
                 
@@ -865,27 +1001,38 @@
                 updateModalFileList();
                 
             } catch (error) {
-                showStatus('pdf', `Ошибка обработки: ${error.message}`, 'error');
+                showStatus('pdf', `❌ Ошибка обработки: ${error.message}`, 'error');
                 console.error('Ошибка:', error);
+            } finally {
+                // Разблокируем кнопку и скрываем прогресс
+                processBtn.disabled = false;
+                showProgress('pdf', false);
             }
         }
         
-        // Отправка Word файлов на API
-        async function sendWordFiles() {
-            if (wordFiles.length === 0) {
-                showStatus('word', 'Нет файлов для отправки', 'error');
+        // Отправка Excel файлов на API
+        async function sendExcelFiles() {
+            if (excelFiles.length === 0) {
+                showStatus('excel', 'Нет файлов для отправки', 'error');
                 return;
             }
             
-            showStatus('word', 'Отправка и обработка Word файлов...', 'info');
+            // Блокируем кнопку
+            const processBtn = document.getElementById('excel-process-btn');
+            processBtn.disabled = true;
+            
+            // Показываем прогресс
+            showProgress('excel', true, 0, 'Подготовка к отправке...');
             
             const formData = new FormData();
-            wordFiles.forEach(file => {
+            excelFiles.forEach((file) => {
                 formData.append('files', file);
             });
             
             try {
-                const response = await fetch('http://localhost:8001/api/parse-multiple-word', {
+                showProgress('excel', true, 30, 'Отправка файлов...');
+                
+                const response = await fetch(API_CONFIG.excel.url, {
                     method: 'POST',
                     body: formData
                 });
@@ -895,48 +1042,65 @@
                     throw new Error(errorData.detail || `Ошибка сервера: ${response.status}`);
                 }
                 
+                showProgress('excel', true, 80, 'Обработка результатов...');
+                
                 const result = await response.json();
                 
-                let message = `✅ Обработка завершена!\n`;
-                message += `📊 Успешно обработано: ${result.successful} файлов\n`;
+                // Формируем подробное сообщение
+                let message = `✅ Обработка завершена!\n\n`;
+                message += `📊 Успешно обработано: ${result.processed} файлов\n`;
                 message += `❌ Не удалось обработать: ${result.failed} файлов\n\n`;
-                message += `📈 Всего создано записей: ${result.total_stats.control_tables}\n`;
                 
-                if (result.total_stats.universities > 0) {
-                    message += `🏫 Университетов: ${result.total_stats.universities}\n`;
-                    message += `📚 Направлений: ${result.total_stats.directions}\n`;
-                    message += `📋 Специализаций: ${result.total_stats.specializations}\n`;
-                    message += `📖 Учебных программ: ${result.total_stats.study_programs}\n`;
+                if (result.total_stats) {
+                    message += `📈 Итоговая статистика:\n`;
+                    message += `   📚 Направлений: ${result.total_stats.directions}\n`;
+                    message += `   📋 Специализаций: ${result.total_stats.specializations}\n`;
+                    message += `   📖 Учебных программ: ${result.total_stats.study_programs}\n`;
+                    message += `   🔄 Форматов контроля: ${result.total_stats.format_controls}\n`;
+                    message += `   🔁 Форматов переаттестации: ${result.total_stats.format_retests}\n`;
+                    message += `   📋 Записей в БД: ${result.total_stats.control_tables}\n`;
                 }
                 
                 if (result.results) {
                     message += `\n📋 Детали по файлам:\n`;
                     result.results.forEach((r, index) => {
                         if (r.success) {
-                            message += `\n✅ ${index + 1}. ${r.filename}: ${r.stats.control_tables} записей`;
+                            message += `\n✅ ${index + 1}. ${r.filename}:\n`;
+                            if (r.specialization) {
+                                message += `   • Специальность: ${r.specialization.name} (${r.specialization.code})\n`;
+                                if (r.direction) {
+                                    message += `   • Направление: ${r.direction.name}\n`;
+                                }
+                            }
+                            message += `   • Предметов: ${r.study_programs}\n`;
+                            message += `   • Записей: ${r.control_tables}\n`;
                         } else {
-                            message += `\n❌ ${index + 1}. ${r.filename}: ${r.error}`;
+                            message += `\n❌ ${index + 1}. ${r.filename}: ${r.error}\n`;
                         }
                     });
                 }
                 
-                if (result.total_stats.errors && result.total_stats.errors.length > 0) {
-                    message += `\n\n⚠️ Ошибки:\n`;
-                    result.total_stats.errors.forEach(err => {
+                if (result.errors && result.errors.length > 0) {
+                    message += `\n⚠️ Ошибки:\n`;
+                    result.errors.forEach(err => {
                         message += `• ${err}\n`;
                     });
                 }
                 
-                showStatus('word', message, 'success');
+                showStatus('excel', message, 'success');
                 
                 // Очищаем файлы после успешной обработки
-                wordFiles = [];
+                excelFiles = [];
                 updateFileCounter();
                 updateModalFileList();
                 
             } catch (error) {
-                showStatus('word', `❌ Ошибка обработки: ${error.message}`, 'error');
+                showStatus('excel', `❌ Ошибка обработки: ${error.message}`, 'error');
                 console.error('Ошибка:', error);
+            } finally {
+                // Разблокируем кнопку и скрываем прогресс
+                processBtn.disabled = false;
+                showProgress('excel', false);
             }
         }
         

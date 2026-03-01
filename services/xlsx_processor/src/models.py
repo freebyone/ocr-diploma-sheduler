@@ -51,18 +51,18 @@ class Specialization(Base):
     code: Mapped[Optional[str]] = mapped_column(
         String(200), nullable=True, default='', comment='Код специальности'
     )
-    direction_id: Mapped[Optional[int]] = mapped_column(  # Сделали опциональным
+    direction_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey('directions.id'), nullable=True, comment='ID Направления'
     )
-    university_id: Mapped[int] = mapped_column(
-        ForeignKey('university.id'), nullable=False,
+    university_id: Mapped[Optional[int]] = mapped_column(  # Изменено на Optional
+        ForeignKey('university.id'), nullable=True,  # nullable=True
         comment='ID Учебного заведения'
     )
 
-    direction: Mapped[Optional["Direction"]] = relationship(  # Опционально
+    direction: Mapped[Optional["Direction"]] = relationship(
         back_populates="specializations"
     )
-    university: Mapped["University"] = relationship(
+    university: Mapped[Optional["University"]] = relationship(
         back_populates="specializations"
     )
     students: Mapped[List["Student"]] = relationship(

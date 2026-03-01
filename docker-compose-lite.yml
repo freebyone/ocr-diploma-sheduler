@@ -151,23 +151,23 @@ services:
   #     - network
   #   restart: unless-stopped
 
-  redis:
-    image: redis:7-alpine
-    container_name: ocr-redis
-    ports:
-      - "6379:6379"
-    command: redis-server --requirepass redis123
-    volumes:
-      - redis_data:/data
-    networks:
-      - network
-    restart: unless-stopped
+  # redis:
+  #   image: redis:7-alpine
+  #   container_name: ocr-redis
+  #   ports:
+  #     - "6379:6379"
+  #   command: redis-server --requirepass redis123
+  #   volumes:
+  #     - redis_data:/data
+  #   networks:
+  #     - network
+  #   restart: unless-stopped
 
-  pdf-processor:
+  pdf-processor-lite:
     build:
-      context: ./services/pdf_processor/src
+      context: ./services/pdf_processor_lite/src
       dockerfile: Dockerfile
-    container_name: ocr-pdf-processor
+    container_name: ocr-pdf-processor-lite
     ports:
       - "8000:8000"
     networks:
@@ -204,8 +204,8 @@ services:
     networks:
       - network
 
-  ocr-worker:
-    build: ./services/ocr_worker/
+  ocr-worker-lite:
+    build: ./services/ocr_worker_lite/
     container_name: ocr-worker
     depends_on:
       - minio
