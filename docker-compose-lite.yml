@@ -82,12 +82,12 @@ services:
 
       mc alias set localminio http://minio:9000 ocrminio admin123456;
 
-      mc mb localminio/documents --ignore-existing;
+      mc mb localminio/documents-lite --ignore-existing;
       mc mb localminio/templates --ignore-existing;
       mc mb localminio/results --ignore-existing;
       mc mb localminio/errors --ignore-existing;
 
-      mc anonymous set download localminio/documents;
+      mc anonymous set download documents-lite;
       mc anonymous set none localminio/templates;
       mc anonymous set none localminio/results;
       mc anonymous set none localminio/errors;
@@ -107,7 +107,7 @@ services:
             \"s3:ListBucket\"
           ],
           \"Resource\": [
-            \"arn:aws:s3:::documents/*\",
+            \"arn:aws:s3:::documents-lite/*\",
             \"arn:aws:s3:::templates/*\",
             \"arn:aws:s3:::results/*\",
             \"arn:aws:s3:::errors/*\"

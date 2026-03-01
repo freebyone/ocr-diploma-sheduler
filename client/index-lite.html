@@ -1,0 +1,1145 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Загрузка PDF и Excel файлов</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        body {
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            color: #333;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding: 20px;
+            background-color: #fff;
+            border-radius: 12px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.08);
+        }
+        
+        h1 {
+            color: #2c3e50;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 15px;
+        }
+        
+        h1 i {
+            color: #3498db;
+        }
+        
+        .description {
+            color: #7f8c8d;
+            max-width: 800px;
+            margin: 0 auto;
+            line-height: 1.6;
+        }
+        
+        .tabs {
+            display: flex;
+            background: white;
+            border-radius: 12px 12px 0 0;
+            overflow: hidden;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.08);
+            margin-bottom: 0;
+        }
+        
+        .tab {
+            flex: 1;
+            padding: 20px;
+            text-align: center;
+            background: #f8f9fa;
+            border: none;
+            cursor: pointer;
+            font-size: 18px;
+            font-weight: 600;
+            color: #7f8c8d;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+        
+        .tab:hover {
+            background: #e9ecef;
+        }
+        
+        .tab.active {
+            background: white;
+            color: #2c3e50;
+            border-bottom: 3px solid #3498db;
+        }
+        
+        .tab[data-tab="pdf"].active {
+            border-bottom-color: #e74c3c;
+        }
+        
+        .tab[data-tab="excel"].active {
+            border-bottom-color: #27ae60;
+        }
+        
+        .tab-content {
+            display: none;
+            background: white;
+            padding: 40px;
+            border-radius: 0 0 12px 12px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.08);
+            margin-bottom: 30px;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        .upload-area {
+            text-align: center;
+            padding: 40px 20px;
+            border: 3px dashed;
+            border-radius: 12px;
+            margin-bottom: 30px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .upload-area.pdf {
+            border-color: #e74c3c;
+            background-color: #fdf1ef;
+        }
+        
+        .upload-area.pdf:hover {
+            background-color: #fbe9e7;
+            border-color: #c0392b;
+        }
+        
+        .upload-area.excel {
+            border-color: #27ae60;
+            background-color: #f0f9f4;
+        }
+        
+        .upload-area.excel:hover {
+            background-color: #e3f3e9;
+            border-color: #219a52;
+        }
+        
+        .upload-icon {
+            font-size: 60px;
+            margin-bottom: 20px;
+        }
+        
+        .upload-icon.pdf {
+            color: #e74c3c;
+        }
+        
+        .upload-icon.excel {
+            color: #27ae60;
+        }
+        
+        .upload-area h3 {
+            margin-bottom: 15px;
+            color: #2c3e50;
+        }
+        
+        .upload-area p {
+            color: #7f8c8d;
+            margin-bottom: 10px;
+        }
+        
+        .file-input {
+            display: none;
+        }
+        
+        /* Подсказка по формату имени PDF */
+        .filename-hint {
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+            border-radius: 8px;
+            padding: 12px 16px;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            font-size: 14px;
+            color: #856404;
+        }
+
+        .filename-hint i {
+            font-size: 18px;
+            margin-top: 2px;
+        }
+
+        .filename-hint code {
+            background: rgba(0,0,0,0.08);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: monospace;
+        }
+        
+        .file-counter {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            font-weight: bold;
+            cursor: pointer;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+            z-index: 1000;
+            transition: all 0.3s;
+            color: white;
+        }
+        
+        .file-counter.pdf {
+            background: #e74c3c;
+        }
+        
+        .file-counter.excel {
+            background: #27ae60;
+        }
+        
+        .file-counter:hover {
+            transform: scale(1.1);
+        }
+        
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1001;
+        }
+        
+        .modal-overlay.active {
+            display: flex;
+        }
+        
+        .modal {
+            background: white;
+            border-radius: 12px;
+            width: 90%;
+            max-width: 600px;
+            max-height: 80vh;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+        }
+        
+        .modal-header {
+            padding: 20px;
+            color: white;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .modal-header.pdf {
+            background: #e74c3c;
+        }
+        
+        .modal-header.excel {
+            background: #27ae60;
+        }
+        
+        .modal-header h3 {
+            margin: 0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .modal-close {
+            background: none;
+            border: none;
+            color: white;
+            font-size: 24px;
+            cursor: pointer;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.3s;
+        }
+        
+        .modal-close:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+        
+        .modal-body {
+            padding: 20px;
+            max-height: 50vh;
+            overflow-y: auto;
+        }
+        
+        .file-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        
+        .file-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border-left: 4px solid;
+        }
+        
+        .file-item.pdf {
+            border-left-color: #e74c3c;
+        }
+        
+        .file-item.excel {
+            border-left-color: #27ae60;
+        }
+        
+        .file-info {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        
+        .file-icon.pdf {
+            color: #e74c3c;
+        }
+        
+        .file-icon.excel {
+            color: #27ae60;
+        }
+        
+        .file-details h4 {
+            margin-bottom: 5px;
+            color: #2c3e50;
+        }
+        
+        .file-details p {
+            color: #7f8c8d;
+            font-size: 14px;
+        }
+
+        /* Бейдж с извлечённым префиксом */
+        .file-prefix-badge {
+            display: inline-block;
+            background: #e74c3c;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 700;
+            margin-left: 8px;
+            letter-spacing: 0.5px;
+        }
+        
+        .file-remove {
+            background: none;
+            border: none;
+            color: #e74c3c;
+            font-size: 20px;
+            cursor: pointer;
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.3s;
+        }
+        
+        .file-remove:hover {
+            background: rgba(231, 76, 60, 0.1);
+        }
+        
+        .modal-footer {
+            padding: 20px;
+            border-top: 1px solid #eee;
+            display: flex;
+            justify-content: flex-end;
+            gap: 15px;
+        }
+        
+        .btn {
+            padding: 12px 24px;
+            border-radius: 8px;
+            border: none;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            transition: all 0.3s;
+        }
+        
+        .btn-primary.pdf {
+            background: #e74c3c;
+            color: white;
+        }
+        
+        .btn-primary.pdf:hover {
+            background: #c0392b;
+        }
+        
+        .btn-primary.excel {
+            background: #27ae60;
+            color: white;
+        }
+        
+        .btn-primary.excel:hover {
+            background: #219a52;
+        }
+        
+        .btn-primary:disabled {
+            background: #bdc3c7;
+            cursor: not-allowed;
+        }
+        
+        .btn-secondary {
+            background: #95a5a6;
+            color: white;
+        }
+        
+        .btn-secondary:hover {
+            background: #7f8c8d;
+        }
+        
+        .btn-danger {
+            background: #e74c3c;
+            color: white;
+        }
+        
+        .btn-danger:hover {
+            background: #c0392b;
+        }
+        
+        .progress-container {
+            margin: 20px 0;
+            display: none;
+        }
+        
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background: #ecf0f1;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            width: 0%;
+            transition: width 0.3s;
+        }
+        
+        .progress-fill.pdf {
+            background: #e74c3c;
+        }
+        
+        .progress-fill.excel {
+            background: #27ae60;
+        }
+        
+        .progress-text {
+            text-align: center;
+            margin-top: 10px;
+            color: #2c3e50;
+        }
+        
+        .status-message {
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 20px;
+            display: none;
+            white-space: pre-line;
+        }
+        
+        .status-success {
+            background: #d4edda;
+            color: #155724;
+            border-left: 5px solid #28a745;
+            display: block;
+        }
+        
+        .status-error {
+            background: #f8d7da;
+            color: #721c24;
+            border-left: 5px solid #dc3545;
+            display: block;
+        }
+        
+        .status-info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border-left: 5px solid #17a2b8;
+            display: block;
+        }
+        
+        .process-buttons {
+            display: flex;
+            justify-content: center;
+            margin-top: 30px;
+        }
+        
+        .btn-large {
+            padding: 16px 32px;
+            font-size: 18px;
+        }
+        
+        @media (max-width: 768px) {
+            .tab-content {
+                padding: 20px;
+            }
+            
+            .process-buttons {
+                flex-direction: column;
+            }
+            
+            .file-counter {
+                bottom: 20px;
+                right: 20px;
+                width: 50px;
+                height: 50px;
+                font-size: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1><i class="fas fa-file-upload"></i> Загрузка PDF и Excel файлов</h1>
+            <p class="description">
+                Выберите тип файлов для загрузки: PDF для сканированных документов или Excel для учебных планов.
+                Файлы будут отправлены на соответствующие API для обработки.
+            </p>
+        </header>
+        
+        <!-- Табы -->
+        <div class="tabs">
+            <button class="tab active" data-tab="pdf">
+                <i class="fas fa-file-pdf"></i> PDF файлы
+            </button>
+            <button class="tab" data-tab="excel">
+                <i class="fas fa-file-excel"></i> Excel файлы
+            </button>
+        </div>
+        
+        <!-- Контент PDF таба -->
+        <div id="pdf-tab" class="tab-content active">
+            <!-- Подсказка по формату имени файла -->
+            <div class="filename-hint">
+                <i class="fas fa-info-circle"></i>
+                <div>
+                    <strong>Формат имени файла:</strong> имя должно начинаться с числового префикса, например
+                    <code>0001_Scan_приложение.pdf</code>. Первая страница PDF будет сохранена в MinIO как
+                    <code>0001.jpg</code>.
+                </div>
+            </div>
+
+            <div class="upload-area pdf" id="pdf-upload-area">
+                <div class="upload-icon pdf">
+                    <i class="fas fa-cloud-upload-alt"></i>
+                </div>
+                <h3>Загрузите PDF файлы</h3>
+                <p>Перетащите файлы сюда или нажмите для выбора</p>
+                <p>Максимальный размер файла: 10 MB</p>
+                <input type="file" id="pdf-files" class="file-input" accept=".pdf" multiple>
+            </div>
+            
+            <div class="progress-container" id="pdf-progress-container">
+                <div class="progress-bar">
+                    <div class="progress-fill pdf" id="pdf-progress-fill"></div>
+                </div>
+                <div class="progress-text" id="pdf-progress-text">Обработка PDF файлов...</div>
+            </div>
+            
+            <div id="pdf-status" class="status-message"></div>
+            
+            <div class="process-buttons">
+                <button class="btn btn-primary pdf btn-large" onclick="sendPdfFiles()" id="pdf-process-btn">
+                    <i class="fas fa-play"></i> Обработать PDF файлы
+                </button>
+            </div>
+        </div>
+        
+        <!-- Контент Excel таба -->
+        <div id="excel-tab" class="tab-content">
+            <div class="upload-area excel" id="excel-upload-area">
+                <div class="upload-icon excel">
+                    <i class="fas fa-cloud-upload-alt"></i>
+                </div>
+                <h3>Загрузите Excel файлы с учебными планами</h3>
+                <p>Перетащите файлы сюда или нажмите для выбора</p>
+                <p>Поддерживаемый формат: .xlsx</p>
+                <input type="file" id="excel-files" class="file-input" accept=".xlsx" multiple>
+            </div>
+            
+            <div class="progress-container" id="excel-progress-container">
+                <div class="progress-bar">
+                    <div class="progress-fill excel" id="excel-progress-fill"></div>
+                </div>
+                <div class="progress-text" id="excel-progress-text">Обработка Excel файлов...</div>
+            </div>
+            
+            <div id="excel-status" class="status-message"></div>
+            
+            <div class="process-buttons">
+                <button class="btn btn-primary excel btn-large" onclick="sendExcelFiles()" id="excel-process-btn">
+                    <i class="fas fa-play"></i> Обработать Excel файлы
+                </button>
+            </div>
+        </div>
+        
+        <!-- Счетчик файлов -->
+        <div class="file-counter" id="file-counter" onclick="showModal()">
+            <span id="counter">0</span>
+        </div>
+        
+        <!-- Модальное окно -->
+        <div class="modal-overlay" id="modal-overlay">
+            <div class="modal">
+                <div class="modal-header" id="modal-header">
+                    <h3><i class="fas fa-folder-open"></i> <span id="modal-title">Выбранные файлы</span></h3>
+                    <button class="modal-close" onclick="hideModal()">×</button>
+                </div>
+                
+                <div class="modal-body">
+                    <div class="file-list" id="modal-file-list"></div>
+                </div>
+                
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" onclick="hideModal()">
+                        <i class="fas fa-times"></i> Закрыть
+                    </button>
+                    <button class="btn btn-danger" onclick="clearAllFiles()">
+                        <i class="fas fa-trash-alt"></i> Очистить все
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Глобальные переменные
+        let pdfFiles = [];
+        let excelFiles = [];
+        let currentTab = 'pdf';
+        
+        // Конфигурация API
+        const API_CONFIG = {
+            pdf: {
+                url: 'http://localhost:8000/api/process-multiple-pdfs',
+                maxSize: 10 * 1024 * 1024,
+                accept: '.pdf'
+            },
+            excel: {
+                url: 'http://localhost:8002/api/parse-multiple-excel',
+                maxSize: null,
+                accept: '.xlsx'
+            }
+        };
+
+        // ──────────────────────────────────────────────
+        // Утилита: извлечь числовой префикс из имени файла
+        // '0001_Scan_приложение.pdf' → '0001'
+        // 'no_prefix.pdf' → null
+        // ──────────────────────────────────────────────
+        function extractPrefix(filename) {
+            const base = filename.replace(/\.[^/.]+$/, ''); // убираем расширение
+            const match = base.match(/^(\d+)/);
+            return match ? match[1] : null;
+        }
+        
+        // Инициализация
+        document.addEventListener('DOMContentLoaded', function() {
+            initTabs();
+            initUploadAreas();
+            updateFileCounter();
+        });
+        
+        function initTabs() {
+            const tabs = document.querySelectorAll('.tab');
+            tabs.forEach(tab => {
+                tab.addEventListener('click', function() {
+                    const tabId = this.getAttribute('data-tab');
+                    
+                    tabs.forEach(t => t.classList.remove('active'));
+                    this.classList.add('active');
+                    
+                    document.querySelectorAll('.tab-content').forEach(content => {
+                        content.classList.remove('active');
+                    });
+                    document.getElementById(`${tabId}-tab`).classList.add('active');
+                    
+                    currentTab = tabId;
+                    updateFileCounter();
+                    updateModalFileList();
+                    
+                    document.querySelectorAll('.status-message').forEach(el => {
+                        el.className = 'status-message';
+                    });
+                });
+            });
+        }
+        
+        function initUploadAreas() {
+            initUploadArea('pdf', handlePdfFiles);
+            initUploadArea('excel', handleExcelFiles);
+        }
+        
+        function initUploadArea(type, handler) {
+            const area = document.getElementById(`${type}-upload-area`);
+            const input = document.getElementById(`${type}-files`);
+            
+            area.addEventListener('click', () => input.click());
+            
+            area.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                area.style.backgroundColor = type === 'pdf' ? '#fbe9e7' : '#e3f3e9';
+            });
+            
+            area.addEventListener('dragleave', () => {
+                area.style.backgroundColor = type === 'pdf' ? '#fdf1ef' : '#f0f9f4';
+            });
+            
+            area.addEventListener('drop', (e) => {
+                e.preventDefault();
+                area.style.backgroundColor = type === 'pdf' ? '#fdf1ef' : '#f0f9f4';
+                
+                const files = Array.from(e.dataTransfer.files).filter(file => 
+                    type === 'pdf' 
+                        ? file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
+                        : file.name.toLowerCase().endsWith('.xlsx')
+                );
+                
+                handler(files);
+            });
+            
+            input.addEventListener('change', (e) => {
+                handler(Array.from(e.target.files));
+                e.target.value = '';
+            });
+        }
+        
+        // Обработка PDF файлов — добавлена валидация префикса
+        function handlePdfFiles(files) {
+            const config = API_CONFIG.pdf;
+            const validFiles = [];
+            const invalidFiles = [];
+            
+            files.forEach(file => {
+                if (file.size > config.maxSize) {
+                    invalidFiles.push({file, reason: `Размер превышает ${config.maxSize / (1024*1024)} MB`});
+                } else if (!file.type.includes('pdf') && !file.name.toLowerCase().endsWith('.pdf')) {
+                    invalidFiles.push({file, reason: 'Не PDF файл'});
+                } else if (!extractPrefix(file.name)) {
+                    invalidFiles.push({file, reason: 'Имя не начинается с числового префикса (ожидается 0001_...pdf)'});
+                } else if (pdfFiles.some(f => f.name === file.name && f.size === file.size)) {
+                    invalidFiles.push({file, reason: 'Файл уже добавлен'});
+                } else {
+                    // Проверяем дубликаты по префиксу
+                    const prefix = extractPrefix(file.name);
+                    const duplicate = pdfFiles.find(f => extractPrefix(f.name) === prefix);
+                    if (duplicate) {
+                        invalidFiles.push({
+                            file,
+                            reason: `Префикс "${prefix}" уже используется файлом "${duplicate.name}"`
+                        });
+                    } else {
+                        validFiles.push(file);
+                    }
+                }
+            });
+            
+            pdfFiles.push(...validFiles);
+            
+            if (invalidFiles.length > 0) {
+                let errorMsg = `Не добавлено файлов: ${invalidFiles.length}\n`;
+                invalidFiles.forEach(item => {
+                    errorMsg += `• ${item.file.name}: ${item.reason}\n`;
+                });
+                showStatus('pdf', errorMsg, 'error');
+            }
+            
+            if (validFiles.length > 0) {
+                let successMsg = `Добавлено PDF файлов: ${validFiles.length}\n`;
+                validFiles.forEach(f => {
+                    const prefix = extractPrefix(f.name);
+                    successMsg += `• ${f.name} → ${prefix}.jpg\n`;
+                });
+                showStatus('pdf', successMsg, 'success');
+            }
+            
+            updateFileCounter();
+            updateModalFileList();
+        }
+        
+        function handleExcelFiles(files) {
+            const validFiles = [];
+            const invalidFiles = [];
+            
+            files.forEach(file => {
+                if (!file.name.toLowerCase().endsWith('.xlsx')) {
+                    invalidFiles.push({file, reason: 'Не Excel файл (требуется .xlsx)'});
+                } else if (excelFiles.some(f => f.name === file.name && f.size === file.size)) {
+                    invalidFiles.push({file, reason: 'Файл уже добавлен'});
+                } else {
+                    validFiles.push(file);
+                }
+            });
+            
+            excelFiles.push(...validFiles);
+            
+            if (invalidFiles.length > 0) {
+                showStatus('excel', `Некоторые файлы не были добавлены: ${invalidFiles.length}`, 'error');
+            }
+            
+            if (validFiles.length > 0) {
+                showStatus('excel', `Добавлено Excel файлов: ${validFiles.length}`, 'success');
+            }
+            
+            updateFileCounter();
+            updateModalFileList();
+        }
+        
+        function removeFile(fileName, fileType) {
+            if (fileType === 'pdf') {
+                pdfFiles = pdfFiles.filter(file => file.name !== fileName);
+            } else if (fileType === 'excel') {
+                excelFiles = excelFiles.filter(file => file.name !== fileName);
+            }
+            
+            updateFileCounter();
+            updateModalFileList();
+        }
+        
+        function updateFileCounter() {
+            const counter = document.getElementById('counter');
+            const counterElement = document.getElementById('file-counter');
+            
+            let totalFiles = 0;
+            let fileType = '';
+            
+            if (currentTab === 'pdf') {
+                totalFiles = pdfFiles.length;
+                fileType = 'pdf';
+            } else if (currentTab === 'excel') {
+                totalFiles = excelFiles.length;
+                fileType = 'excel';
+            }
+            
+            counter.textContent = totalFiles;
+            counterElement.className = `file-counter ${fileType}`;
+            counterElement.style.display = totalFiles > 0 ? 'flex' : 'none';
+        }
+        
+        function showModal() {
+            updateModalFileList();
+            document.getElementById('modal-overlay').classList.add('active');
+        }
+        
+        function hideModal() {
+            document.getElementById('modal-overlay').classList.remove('active');
+        }
+        
+        // Обновлённый список файлов в модальном окне — показываем префикс → результат
+        function updateModalFileList() {
+            const fileList = document.getElementById('modal-file-list');
+            const modalHeader = document.getElementById('modal-header');
+            const modalTitle = document.getElementById('modal-title');
+            
+            fileList.innerHTML = '';
+            
+            let filesToShow = [];
+            let fileType = '';
+            
+            if (currentTab === 'pdf') {
+                filesToShow = pdfFiles;
+                fileType = 'pdf';
+                modalHeader.className = 'modal-header pdf';
+                modalTitle.textContent = 'Выбранные PDF файлы';
+            } else if (currentTab === 'excel') {
+                filesToShow = excelFiles;
+                fileType = 'excel';
+                modalHeader.className = 'modal-header excel';
+                modalTitle.textContent = 'Выбранные Excel файлы';
+            }
+            
+            if (filesToShow.length === 0) {
+                fileList.innerHTML = '<p style="text-align: center; color: #7f8c8d;">Нет выбранных файлов</p>';
+                return;
+            }
+            
+            filesToShow.forEach(file => {
+                const fileSize = (file.size / (1024 * 1024)).toFixed(2);
+                const iconClass = fileType === 'pdf' ? 'fa-file-pdf' : 'fa-file-excel';
+                
+                // Для PDF показываем, какой jpg получится
+                let extraInfo = '';
+                if (fileType === 'pdf') {
+                    const prefix = extractPrefix(file.name);
+                    if (prefix) {
+                        extraInfo = `<span class="file-prefix-badge">→ ${prefix}.jpg</span>`;
+                    }
+                }
+                
+                const fileItem = document.createElement('div');
+                fileItem.className = `file-item ${fileType}`;
+                fileItem.innerHTML = `
+                    <div class="file-info">
+                        <div class="file-icon ${fileType}">
+                            <i class="fas ${iconClass}"></i>
+                        </div>
+                        <div class="file-details">
+                            <h4>${file.name} ${extraInfo}</h4>
+                            <p>${fileSize} MB • ${fileType.toUpperCase()}</p>
+                        </div>
+                    </div>
+                    <button class="file-remove" onclick="removeFile('${file.name}', '${fileType}')">
+                        <i class="fas fa-times"></i>
+                    </button>
+                `;
+                
+                fileList.appendChild(fileItem);
+            });
+        }
+        
+        function clearAllFiles() {
+            if (currentTab === 'pdf') {
+                pdfFiles = [];
+                showStatus('pdf', 'Все PDF файлы удалены', 'info');
+            } else if (currentTab === 'excel') {
+                excelFiles = [];
+                showStatus('excel', 'Все Excel файлы удалены', 'info');
+            }
+            
+            updateFileCounter();
+            updateModalFileList();
+        }
+        
+        function showStatus(type, message, status) {
+            const statusElement = document.getElementById(`${type}-status`);
+            statusElement.textContent = message;
+            statusElement.className = `status-message status-${status}`;
+            
+            setTimeout(() => {
+                statusElement.className = 'status-message';
+            }, 8000);
+        }
+        
+        function showProgress(type, show, percent = 0, text = '') {
+            const progressContainer = document.getElementById(`${type}-progress-container`);
+            const progressFill = document.getElementById(`${type}-progress-fill`);
+            const progressText = document.getElementById(`${type}-progress-text`);
+            
+            if (show) {
+                progressContainer.style.display = 'block';
+                progressFill.style.width = percent + '%';
+                if (text) progressText.textContent = text;
+            } else {
+                progressContainer.style.display = 'none';
+            }
+        }
+        
+        // ──────────────────────────────────────────────
+        // Отправка PDF файлов — обновлённая обработка ответа
+        // ──────────────────────────────────────────────
+        async function sendPdfFiles() {
+            if (pdfFiles.length === 0) {
+                showStatus('pdf', 'Нет файлов для отправки', 'error');
+                return;
+            }
+            
+            const processBtn = document.getElementById('pdf-process-btn');
+            processBtn.disabled = true;
+            
+            showProgress('pdf', true, 0, 'Подготовка к отправке...');
+            
+            const formData = new FormData();
+            pdfFiles.forEach((file) => {
+                formData.append('files', file);
+            });
+            
+            try {
+                showProgress('pdf', true, 30, 'Отправка файлов...');
+                
+                const response = await fetch(API_CONFIG.pdf.url, {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.detail || `Ошибка сервера: ${response.status}`);
+                }
+                
+                showProgress('pdf', true, 80, 'Обработка результатов...');
+                
+                const result = await response.json();
+                
+                // ── Формируем сообщение под новый формат ответа ──
+                let message = `✅ Обработка завершена!\n\n`;
+                message += `📊 Успешно обработано: ${result.processed} файлов\n`;
+                message += `❌ Не удалось обработать: ${result.failed} файлов\n\n`;
+                
+                if (result.results && result.results.length > 0) {
+                    message += `📋 Результаты:\n`;
+                    result.results.forEach((res, index) => {
+                        message += `\n✅ ${index + 1}. ${res.pdf_name}\n`;
+                        message += `   • Префикс: ${res.extracted_prefix}\n`;
+                        message += `   • Сохранено как: ${res.image_object}\n`;
+                        message += `   • Бакет: ${res.bucket}\n`;
+                    });
+                }
+                
+                if (result.errors && result.errors.length > 0) {
+                    message += `\n⚠️ Ошибки:\n`;
+                    result.errors.forEach(err => {
+                        message += `• ${err.filename || ''}: ${err.error || err}\n`;
+                    });
+                }
+                
+                showProgress('pdf', true, 100, 'Готово!');
+                
+                showStatus('pdf', message, 'success');
+                
+                pdfFiles = [];
+                updateFileCounter();
+                updateModalFileList();
+                
+            } catch (error) {
+                showStatus('pdf', `❌ Ошибка обработки: ${error.message}`, 'error');
+                console.error('Ошибка:', error);
+            } finally {
+                processBtn.disabled = false;
+                showProgress('pdf', false);
+            }
+        }
+        
+        // Отправка Excel файлов (без изменений)
+        async function sendExcelFiles() {
+            if (excelFiles.length === 0) {
+                showStatus('excel', 'Нет файлов для отправки', 'error');
+                return;
+            }
+            
+            const processBtn = document.getElementById('excel-process-btn');
+            processBtn.disabled = true;
+            
+            showProgress('excel', true, 0, 'Подготовка к отправке...');
+            
+            const formData = new FormData();
+            excelFiles.forEach((file) => {
+                formData.append('files', file);
+            });
+            
+            try {
+                showProgress('excel', true, 30, 'Отправка файлов...');
+                
+                const response = await fetch(API_CONFIG.excel.url, {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.detail || `Ошибка сервера: ${response.status}`);
+                }
+                
+                showProgress('excel', true, 80, 'Обработка результатов...');
+                
+                const result = await response.json();
+                
+                let message = `✅ Обработка завершена!\n\n`;
+                message += `📊 Успешно обработано: ${result.processed} файлов\n`;
+                message += `❌ Не удалось обработать: ${result.failed} файлов\n\n`;
+                
+                if (result.total_stats) {
+                    message += `📈 Итоговая статистика:\n`;
+                    message += `   📚 Направлений: ${result.total_stats.directions}\n`;
+                    message += `   📋 Специализаций: ${result.total_stats.specializations}\n`;
+                    message += `   📖 Учебных программ: ${result.total_stats.study_programs}\n`;
+                    message += `   🔄 Форматов контроля: ${result.total_stats.format_controls}\n`;
+                    message += `   🔁 Форматов переаттестации: ${result.total_stats.format_retests}\n`;
+                    message += `   📋 Записей в БД: ${result.total_stats.control_tables}\n`;
+                }
+                
+                if (result.results) {
+                    message += `\n📋 Детали по файлам:\n`;
+                    result.results.forEach((r, index) => {
+                        if (r.success) {
+                            message += `\n✅ ${index + 1}. ${r.filename}:\n`;
+                            if (r.specialization) {
+                                message += `   • Специальность: ${r.specialization.name} (${r.specialization.code})\n`;
+                                if (r.direction) {
+                                    message += `   • Направление: ${r.direction.name}\n`;
+                                }
+                            }
+                            message += `   • Предметов: ${r.study_programs}\n`;
+                            message += `   • Записей: ${r.control_tables}\n`;
+                        } else {
+                            message += `\n❌ ${index + 1}. ${r.filename}: ${r.error}\n`;
+                        }
+                    });
+                }
+                
+                if (result.errors && result.errors.length > 0) {
+                    message += `\n⚠️ Ошибки:\n`;
+                    result.errors.forEach(err => {
+                        message += `• ${err}\n`;
+                    });
+                }
+                
+                showStatus('excel', message, 'success');
+                
+                excelFiles = [];
+                updateFileCounter();
+                updateModalFileList();
+                
+            } catch (error) {
+                showStatus('excel', `❌ Ошибка обработки: ${error.message}`, 'error');
+                console.error('Ошибка:', error);
+            } finally {
+                processBtn.disabled = false;
+                showProgress('excel', false);
+            }
+        }
+        
+        document.getElementById('modal-overlay').addEventListener('click', function(e) {
+            if (e.target === this) {
+                hideModal();
+            }
+        });
+    </script>
+</body>
+</html>
