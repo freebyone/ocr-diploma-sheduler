@@ -20,10 +20,8 @@ logging.basicConfig(
     ]
 )
 
-# Увеличиваем лимиты для JSON
-sys.setrecursionlimit(1000000)  # Увеличиваем для больших JSON
-
 logger = logging.getLogger(__name__)
+
 
 class OCRProcessor:
     def __init__(self):
@@ -32,31 +30,32 @@ class OCRProcessor:
             from importlib.metadata import version
             minio_version = version("minio")
             logger.info(f"MinIO library version: {minio_version}")
-        except:
+        except Exception:
             try:
                 import pkg_resources
                 minio_version = pkg_resources.get_distribution("minio").version
                 logger.info(f"MinIO library version: {minio_version}")
-            except:
+            except Exception:
                 logger.warning("Could not determine MinIO version")
-        
+
         self.minio_client = Minio(
             "minio:9000",
             access_key="ocrminio",
             secret_key="admin123456",
             secure=False
         )
-        
+
         self.ollama_url = "http://ollama:11434/api/generate"
         self.model = "deepseek-ocr"
-        
+
         self.source_bucket = "documents"
         self.results_bucket = "results"
         self.errors_bucket = "errors"
-        
+
         self._ensure_buckets()
-    
+
     def _ensure_buckets(self):
+        """Создаём бакеты если не существуют."""
         for bucket in [self.source_bucket, self.results_bucket, self.errors_bucket]:
             try:
                 if not self.minio_client.bucket_exists(bucket):
@@ -64,59 +63,84 @@ class OCRProcessor:
                     logger.info(f"Created bucket: {bucket}")
             except Exception as e:
                 logger.error(f"Error ensuring bucket {bucket}: {e}")
-    
-    def list_folders(self) -> List[str]:
-        folders = []
-        try:
-            objects = self.minio_client.list_objects(self.source_bucket, recursive=False)
-            for obj in objects:
-                if obj.object_name.endswith('/'):
-                    folder_name = obj.object_name.rstrip('/')
-                    folders.append(folder_name)
-        except Exception as e:
-            logger.error(f"Error listing folders: {e}")
-        return folders
-    
-    def list_images(self, folder: str) -> List[str]:
+
+    # ──────────────────────────────────────────────
+    # Работа с файлами в бакете (без папок)
+    # ──────────────────────────────────────────────
+
+    def list_images(self) -> List[str]:
+        """
+        Получает список всех .jpg файлов в source_bucket.
+        Возвращает список имён вида ['0001.jpg', '0102.jpg', ...]
+        """
         images = []
         try:
-            prefix = f"{folder}/"
-            objects = self.minio_client.list_objects(self.source_bucket, prefix=prefix, recursive=True)
+            objects = self.minio_client.list_objects(
+                self.source_bucket,
+                recursive=True
+            )
             for obj in objects:
-                if not obj.object_name.endswith('/'):
-                    images.append(obj.object_name)
+                name = obj.object_name
+                if name.lower().endswith('.jpg') and '/' not in name:
+                    images.append(name)
         except Exception as e:
-            logger.error(f"Error listing images in {folder}: {e}")
+            logger.error(f"Error listing images: {e}")
         return images
-    
-    def download_image(self, image_path: str) -> Optional[str]:
+
+    def get_prefix_from_image(self, image_name: str) -> str:
+        """
+        Извлекает префикс из имени файла.
+        '0001.jpg' → '0001'
+        """
+        return os.path.splitext(image_name)[0]
+
+    def download_image(self, image_name: str) -> Optional[str]:
+        """Скачивает изображение из MinIO во временный файл."""
         try:
             temp_file = tempfile.NamedTemporaryFile(suffix='.jpg', delete=False)
             temp_path = temp_file.name
             temp_file.close()
-            
-            self.minio_client.fget_object(self.source_bucket, image_path, temp_path)
+
+            self.minio_client.fget_object(self.source_bucket, image_name, temp_path)
             return temp_path
         except Exception as e:
-            logger.error(f"Error downloading {image_path}: {e}")
+            logger.error(f"Error downloading {image_name}: {e}")
             return None
-    
-    def process_single_image(self, image_path: str) -> Dict[str, Any]:
-        local_path = self.download_image(image_path)
+
+    def delete_image_from_source(self, image_name: str) -> bool:
+        """Удаляет одно изображение из source_bucket."""
+        try:
+            self.minio_client.remove_object(self.source_bucket, image_name)
+            logger.info(f"Deleted from source: {image_name}")
+            return True
+        except Exception as e:
+            logger.error(f"Error deleting {image_name} from source: {e}")
+            return False
+
+    # ──────────────────────────────────────────────
+    # OCR обработка одного изображения через Ollama
+    # ──────────────────────────────────────────────
+
+    def ocr_image(self, image_name: str) -> Dict[str, Any]:
+        """
+        Скачивает изображение, отправляет в Ollama OCR,
+        возвращает результат.
+        """
+        local_path = self.download_image(image_name)
         if not local_path:
             return {
-                "image_path": image_path,
+                "image": image_name,
                 "error": "Failed to download image",
                 "status": "error",
                 "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
             }
-        
+
         try:
             with open(local_path, "rb") as image_file:
                 base64_image = base64.b64encode(image_file.read()).decode('utf-8')
-            
+
             prompt = "Describe this image in detail."
-            
+
             payload = {
                 "model": self.model,
                 "prompt": prompt,
@@ -127,32 +151,34 @@ class OCRProcessor:
                     "num_predict": 4096
                 }
             }
-            
-            logger.info(f"Sending to Ollama: {image_path}")
+
+            logger.info(f"Sending to Ollama: {image_name}")
             start_time = time.time()
-            
+
             response = requests.post(
                 self.ollama_url,
                 json=payload,
                 timeout=600,
                 headers={"Content-Type": "application/json"}
             )
-            
+
             elapsed = time.time() - start_time
-            
+
             if response.status_code == 200:
                 result = response.json()
-                
+
                 done_reason = result.get('done_reason', 'unknown')
                 ocr_text = result.get('response', '').strip()
-                
+
                 status = "success" if done_reason == 'stop' else "partial"
-                
-                logger.info(f"{'Success' if status == 'success' else 'Partial'} in {elapsed:.1f}s "
-                           f"(reason: {done_reason}), text length: {len(ocr_text)}")
-                
+
+                logger.info(
+                    f"{'Success' if status == 'success' else 'Partial'} in {elapsed:.1f}s "
+                    f"(reason: {done_reason}), text length: {len(ocr_text)}"
+                )
+
                 return {
-                    "image_path": image_path,
+                    "image": image_name,
                     "ocr_text": ocr_text,
                     "processing_time": elapsed,
                     "model": self.model,
@@ -165,325 +191,241 @@ class OCRProcessor:
             else:
                 logger.error(f"Ollama HTTP error: {response.status_code}")
                 return {
-                    "image_path": image_path,
+                    "image": image_name,
                     "error": f"HTTP {response.status_code}",
                     "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
                     "status": "error"
                 }
-                
+
         except requests.exceptions.Timeout:
-            logger.error(f"Timeout processing {image_path} after 600s")
+            logger.error(f"Timeout processing {image_name} after 600s")
             return {
-                "image_path": image_path,
+                "image": image_name,
                 "error": "Timeout after 600 seconds",
                 "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
                 "status": "error"
             }
         except Exception as e:
-            logger.error(f"Error processing {image_path}: {e}")
+            logger.error(f"Error processing {image_name}: {e}")
             logger.error(traceback.format_exc())
             return {
-                "image_path": image_path,
+                "image": image_name,
                 "error": str(e),
                 "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
                 "status": "error"
             }
         finally:
-            if os.path.exists(local_path):
+            if local_path and os.path.exists(local_path):
                 os.remove(local_path)
-    
-    def save_to_bucket(self, bucket_name: str, folder: str, data: Dict, filename_suffix: str = "result") -> bool:
+
+    # ──────────────────────────────────────────────
+    # Сохранение результатов
+    # ──────────────────────────────────────────────
+
+    def save_json_to_bucket(self, bucket_name: str, object_name: str, data: Dict) -> bool:
+        """
+        Сохраняет JSON в указанный бакет.
+        object_name — имя файла, например '0001.json'
+        """
         temp_file_path = None
         try:
-            result_filename = f"{folder}/ocr_{filename_suffix}.json"
-            
-            # Создаем временный файл
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', encoding='utf-8', delete=False) as temp_file:
+            with tempfile.NamedTemporaryFile(
+                mode='w', suffix='.json', encoding='utf-8', delete=False
+            ) as temp_file:
                 temp_file_path = temp_file.name
-                # Записываем JSON с правильными параметрами
                 json.dump(data, temp_file, indent=2, ensure_ascii=False)
                 temp_file.flush()
-                os.fsync(temp_file.fileno())  # Принудительная запись на диск
-            
-            # Проверяем размер файла
+                os.fsync(temp_file.fileno())
+
             file_size = os.path.getsize(temp_file_path)
             logger.info(f"JSON file size: {file_size / 1024:.2f} KB")
-            
-            # Загружаем в MinIO
+
             with open(temp_file_path, 'rb') as file_data:
                 self.minio_client.put_object(
                     bucket_name,
-                    result_filename,
+                    object_name,
                     file_data,
                     file_size,
                     content_type="application/json; charset=utf-8"
                 )
-            
-            logger.info(f"Saved to {bucket_name}/{result_filename}")
-            
-            # Проверяем загруженный файл
-            self._verify_saved_file(bucket_name, result_filename, file_size)
-            
+
+            logger.info(f"Saved to {bucket_name}/{object_name}")
+
+            # Верификация
+            self._verify_saved_file(bucket_name, object_name, file_size)
+
             return True
-            
+
         except Exception as e:
-            logger.error(f"Error saving to {bucket_name}: {e}")
+            logger.error(f"Error saving to {bucket_name}/{object_name}: {e}")
             logger.error(traceback.format_exc())
             return False
         finally:
-            # Удаляем временный файл
             if temp_file_path and os.path.exists(temp_file_path):
                 try:
                     os.remove(temp_file_path)
-                except:
+                except Exception:
                     pass
-    
+
     def _verify_saved_file(self, bucket: str, filename: str, expected_size: int) -> bool:
+        """Проверяет что файл загрузился корректно."""
         try:
-            # Получаем информацию о файле
             obj_info = self.minio_client.stat_object(bucket, filename)
             actual_size = obj_info.size
-            
+
             if actual_size == expected_size:
                 logger.info(f"File verification passed: {filename} ({actual_size} bytes)")
                 return True
             else:
-                logger.error(f"File size mismatch for {filename}: expected {expected_size}, got {actual_size}")
+                logger.error(
+                    f"File size mismatch for {filename}: "
+                    f"expected {expected_size}, got {actual_size}"
+                )
                 return False
         except Exception as e:
             logger.error(f"Error verifying file {filename}: {e}")
             return False
-    
-    def move_folder_to_errors(self, folder: str, results: List[Dict]) -> bool:
-        try:
-            error_data = {
-                "folder": folder,
-                "moved_to_errors_at": time.strftime("%Y-%m-%d %H:%M:%S"),
-                "reason": "Contains failed/partial OCR results",
-                "results": results
-            }
-            
-            self.save_to_bucket(self.errors_bucket, folder, error_data, "errors")
-            
-            # Копируем файлы в errors bucket
-            prefix = f"{folder}/"
-            objects = self.minio_client.list_objects(self.source_bucket, prefix=prefix, recursive=True)
-            
-            copy_success = True
-            for obj in objects:
-                try:
-                    self.minio_client.copy_object(
-                        self.errors_bucket,
-                        obj.object_name,
-                        f"{self.source_bucket}/{obj.object_name}"
-                    )
-                except Exception as e:
-                    logger.error(f"Error copying {obj.object_name}: {e}")
-                    copy_success = False
-            
-            if copy_success:
-                logger.info(f"Moved folder {folder} to errors bucket")
-            else:
-                logger.warning(f"Some files failed to copy for folder {folder}")
-            
-            return copy_success
-            
-        except Exception as e:
-            logger.error(f"Error moving folder to errors: {e}")
-            logger.error(traceback.format_exc())
-            return False
-    
-    def delete_folder_from_source(self, folder: str) -> bool:
-        try:
-            logger.info(f"=== Starting deletion of folder: {folder} ===")
-            
-            prefix = f"{folder}/"
-            logger.info(f"Looking for objects with prefix: {prefix}")
-            
-            # Получаем список объектов
-            objects = []
-            try:
-                objects_iter = self.minio_client.list_objects(
-                    self.source_bucket, 
-                    prefix=prefix, 
-                    recursive=True
-                )
-                objects = list(objects_iter)
-                logger.info(f"Found {len(objects)} objects to delete")
-                
-            except Exception as e:
-                logger.error(f"Error listing objects: {e}")
-                return False
-            
-            if not objects:
-                logger.info(f"No objects found in folder {folder}")
-                return True
-            
-            # Удаляем объекты по одному
-            success_count = 0
-            error_count = 0
-            
-            for obj in objects:
-                try:
-                    obj_name = obj.object_name
-                    self.minio_client.remove_object(self.source_bucket, obj_name)
-                    success_count += 1
-                    logger.debug(f"Deleted: {obj_name}")
-                except Exception as e:
-                    logger.error(f"Error deleting object {obj_name}: {e}")
-                    error_count += 1
-            
-            logger.info(f"Deletion summary for {folder}: {success_count} succeeded, {error_count} failed")
-            
-            return error_count == 0
-                
-        except Exception as e:
-            logger.error(f"Unexpected error in delete_folder_from_source: {e}")
-            logger.error(traceback.format_exc())
-            return False
-    
-    def analyze_results(self, results: List[Dict]) -> Dict[str, Any]:
-        total = len(results)
-        success = len([r for r in results if r.get("status") == "success"])
-        partial = len([r for r in results if r.get("status") == "partial"])
-        errors = len([r for r in results if r.get("status") == "error"])
+
+    # ──────────────────────────────────────────────
+    # Обработка одного изображения (полный цикл)
+    # ──────────────────────────────────────────────
+
+    def process_image(self, image_name: str) -> bool:
+        """
+        Полный цикл обработки одного изображения:
+        1. OCR через Ollama
+        2. Если done_reason == 'stop' → сохраняем в results/{prefix}.json
+        3. Иначе → сохраняем в errors/{prefix}.json
+        4. Удаляем исходный файл из documents
         
-        success_with_stop = 0
-        success_with_length = 0
-        
-        for result in results:
-            if result.get("status") == "success":
-                if result.get("done_reason") == "stop":
-                    success_with_stop += 1
-                elif result.get("done_reason") == "length":
-                    success_with_length += 1
-        
-        analysis = {
-            "total_images": total,
-            "success_stop": success_with_stop,
-            "success_length": success_with_length,
-            "partial": partial,
-            "errors": errors,
-            "all_success_stop": success_with_stop == total and total > 0,
-            "has_length_issues": success_with_length > 0 or partial > 0,
-            "has_errors": errors > 0
+        Пример:
+            documents/0001.jpg
+            → OCR → results/0001.json (или errors/0001.json)
+            → удаляем documents/0001.jpg
+        """
+        prefix = self.get_prefix_from_image(image_name)
+        json_name = f"{prefix}.json"
+
+        logger.info(f"=== Processing image: {image_name} (prefix: {prefix}) ===")
+
+        # 1. OCR
+        result = self.ocr_image(image_name)
+
+        # 2. Обёртка для сохранения
+        result_data = {
+            "prefix": prefix,
+            "source_image": image_name,
+            "processed_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "result": result
         }
-        
-        return analysis
-    
-    def process_folder(self, folder: str) -> bool:
-        logger.info(f"=== Processing folder: {folder} ===")
-        
-        images = self.list_images(folder)
-        
-        if not images:
-            logger.warning(f"No images found in folder: {folder}")
-            self.delete_folder_from_source(folder)
-            return False
-        
-        logger.info(f"Found {len(images)} images to process")
-        
-        results = []
-        
-        for idx, img_path in enumerate(images, 1):
-            logger.info(f"[{idx}/{len(images)}] Processing: {img_path}")
-            
-            result = self.process_single_image(img_path)
-            if result:
-                results.append(result)
-            
-            time.sleep(1)
-        
-        analysis = self.analyze_results(results)
-        logger.info(f"Analysis: {analysis}")
-        
-        if analysis["all_success_stop"]:
-            logger.info(f"All images processed successfully with reason=stop")
-            
-            result_data = {
-                "folder": folder,
-                "processed_at": time.strftime("%Y-%m-%d %H:%M:%S"),
-                "analysis": analysis,
-                "results": results
-            }
-            
-            save_success = self.save_to_bucket(self.results_bucket, folder, result_data, "result")
-            
-            if save_success:
-                logger.info(f"Deleting folder from source: {folder}")
-                delete_success = self.delete_folder_from_source(folder)
-                
-                if delete_success:
-                    logger.info(f"Successfully deleted source folder: {folder}")
-                else:
-                    logger.error(f"Failed to delete source folder: {folder}")
-                
-                return True
-            else:
-                logger.error(f"Failed to save results for folder {folder}")
-                return False
-            
-        elif analysis["has_length_issues"] or analysis["has_errors"]:
-            logger.warning(f"Folder has issues. Moving to errors bucket")
-            
-            self.move_folder_to_errors(folder, results)
-            
-            logger.info(f"Deleting folder from source: {folder}")
-            self.delete_folder_from_source(folder)
-            
-            return False
-        
+
+        status = result.get("status", "error")
+        done_reason = result.get("done_reason", "unknown")
+
+        # 3. Определяем куда сохранять
+        if status == "success" and done_reason == "stop":
+            # Всё хорошо → results
+            target_bucket = self.results_bucket
+            logger.info(f"✅ OCR successful (reason: stop) → saving to {target_bucket}/{json_name}")
         else:
-            logger.error(f"Unexpected analysis result: {analysis}")
-            self.move_folder_to_errors(folder, results)
-            self.delete_folder_from_source(folder)
-            return False
-    
+            # Проблема → errors
+            target_bucket = self.errors_bucket
+            reason = result.get("error", f"done_reason={done_reason}, status={status}")
+            result_data["error_reason"] = reason
+            logger.warning(
+                f"⚠️ OCR issue for {image_name}: {reason} → saving to {target_bucket}/{json_name}"
+            )
+
+        # 4. Сохраняем JSON
+        save_success = self.save_json_to_bucket(target_bucket, json_name, result_data)
+
+        if save_success:
+            # 5. Удаляем исходный файл из documents
+            logger.info(f"Deleting source image: {image_name}")
+            self.delete_image_from_source(image_name)
+        else:
+            logger.error(f"Failed to save result for {image_name}, keeping source file")
+
+        return status == "success" and done_reason == "stop"
+
+    # ──────────────────────────────────────────────
+    # Главный цикл
+    # ──────────────────────────────────────────────
+
     def run(self):
         logger.info("=== Starting OCR Processor ===")
-        
+
         # Проверка подключения к MinIO
         try:
             buckets = self.minio_client.list_buckets()
-            logger.info(f"Successfully connected to MinIO. Available buckets: {[b.name for b in buckets]}")
+            logger.info(
+                f"Successfully connected to MinIO. "
+                f"Available buckets: {[b.name for b in buckets]}"
+            )
         except Exception as e:
             logger.error(f"Failed to connect to MinIO: {e}")
             logger.error("Check if MinIO is running and credentials are correct")
             return
-        
+
         logger.info(f"Source bucket: {self.source_bucket}")
         logger.info(f"Results bucket: {self.results_bucket}")
         logger.info(f"Errors bucket: {self.errors_bucket}")
-        logger.info("Waiting for folders to process...")
+        logger.info("")
+        logger.info("File format: documents/0001.jpg → results/0001.json or errors/0001.json")
+        logger.info("")
         logger.info("Rules:")
-        logger.info("  - All images with 'done_reason: stop' → results bucket")
-        logger.info("  - Any image with 'done_reason: length' or error → errors bucket")
-        logger.info("  - Source folder deleted after processing")
-        
+        logger.info("  - done_reason: stop → results bucket (0001.json)")
+        logger.info("  - done_reason: length / error → errors bucket (0001.json)")
+        logger.info("  - Source image deleted after processing")
+        logger.info("")
+        logger.info("Waiting for images to process...")
+
         while True:
             try:
-                folders = self.list_folders()
-                
-                if folders:
-                    logger.info(f"Found {len(folders)} folders to process")
-                
-                for folder in folders:
+                images = self.list_images()
+
+                if images:
+                    logger.info(f"Found {len(images)} images to process: {images}")
+
+                for image_name in images:
                     try:
-                        self.process_folder(folder)
+                        self.process_image(image_name)
                     except Exception as e:
-                        logger.error(f"Error processing folder {folder}: {e}")
+                        logger.error(f"Error processing {image_name}: {e}")
                         logger.error(traceback.format_exc())
+
+                        # Пытаемся сохранить ошибку и удалить исходник
                         try:
-                            self.move_folder_to_errors(folder, [{"error": str(e)}])
-                            self.delete_folder_from_source(folder)
+                            prefix = self.get_prefix_from_image(image_name)
+                            error_data = {
+                                "prefix": prefix,
+                                "source_image": image_name,
+                                "processed_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+                                "error_reason": str(e),
+                                "result": {
+                                    "image": image_name,
+                                    "error": str(e),
+                                    "status": "error",
+                                    "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
+                                }
+                            }
+                            self.save_json_to_bucket(
+                                self.errors_bucket,
+                                f"{prefix}.json",
+                                error_data
+                            )
+                            self.delete_image_from_source(image_name)
                         except Exception as inner_e:
-                            logger.error(f"Error in error handling for {folder}: {inner_e}")
-                
-                if not folders:
-                    logger.debug("No folders found. Checking again in 30 seconds...")
-                
+                            logger.error(f"Error in error handling for {image_name}: {inner_e}")
+
+                    # Пауза между изображениями
+                    time.sleep(1)
+
+                if not images:
+                    logger.debug("No images found. Checking again in 30 seconds...")
+
                 time.sleep(30)
-                
+
             except KeyboardInterrupt:
                 logger.info("Stopped by user")
                 break
@@ -492,9 +434,11 @@ class OCRProcessor:
                 logger.error(traceback.format_exc())
                 time.sleep(30)
 
+
 def main():
     processor = OCRProcessor()
     processor.run()
+
 
 if __name__ == "__main__":
     main()
