@@ -48,7 +48,7 @@ class OCRProcessor:
         self.ollama_url = "http://ollama:11434/api/generate"
         self.model = "deepseek-ocr"
 
-        self.source_bucket = "documents"
+        self.source_bucket = "documents-lite"
         self.results_bucket = "results"
         self.errors_bucket = "errors"
 
@@ -139,7 +139,7 @@ class OCRProcessor:
             with open(local_path, "rb") as image_file:
                 base64_image = base64.b64encode(image_file.read()).decode('utf-8')
 
-            prompt = "Describe this image in detail."
+            prompt = "Extract all text from this image exactly as it appears, preserving the original layout, formatting, and every character. Do not interpret, summarize, or convert to any format. Output the raw text only."
 
             payload = {
                 "model": self.model,

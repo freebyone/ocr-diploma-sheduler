@@ -173,8 +173,8 @@ services:
     networks:
       - network
     volumes:
-      - ./services/pdf_processor/src:/app
-      - ./services/pdf_processor/src/logs:/app/logs
+      - ./services/pdf_processor_lite/src:/app
+      - ./services/pdf_processor_lite/src/logs:/app/logs
     depends_on:
       - minio
     restart: unless-stopped
@@ -206,12 +206,12 @@ services:
 
   ocr-worker-lite:
     build: ./services/ocr_worker_lite/
-    container_name: ocr-worker
+    container_name: ocr-worker-lite
     depends_on:
       - minio
       - ollama
     volumes:
-      - ./services/ocr_worker/results:/app/results
+      - ./services/ocr_worker_lite/results:/app/results
     networks:
       - network
     restart: unless-stopped

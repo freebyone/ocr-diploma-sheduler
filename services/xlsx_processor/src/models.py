@@ -88,13 +88,16 @@ class Student(Base):
         comment='ID Специализации'
     )
 
+    file_name: Mapped[str] = mapped_column(
+        String(500), nullable=False, comment='Код файла'
+    )
+
     specialization: Mapped["Specialization"] = relationship(
         back_populates="students"
     )
 
     def __repr__(self) -> str:
         return f"<Student(id={self.id}, full_name='{self.full_name}')>"
-
 
 class FormatControl(Base):
     __tablename__ = 'format_control'
