@@ -139,7 +139,7 @@ class OCRProcessor:
             with open(local_path, "rb") as image_file:
                 base64_image = base64.b64encode(image_file.read()).decode('utf-8')
 
-            prompt = "Extract all text from this image exactly as it appears, preserving the original layout, formatting, and every character. Do not interpret, summarize, or convert to any format. Output the raw text only."
+            prompt = "Convert the document to txt format."
 
             payload = {
                 "model": self.model,
