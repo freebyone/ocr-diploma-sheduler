@@ -75,6 +75,42 @@ class Specialization(Base):
     def __repr__(self) -> str:
         return f"<Specialization(id={self.id}, name='{self.name}')>"
 
+class IncomingDirection(Base):
+    __tablename__ = 'incoming_direction'
+
+    id: Mapped[int] =  mapped_column(primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(
+        String(300), nullable=False, comment='Название направления'
+    )
+
+    # incoming_direction_student: Mapped["IncomingDirectionStudent"] = relationship(
+    #     back_populates="incoming_direction"
+    # )
+    incoming_direction_students: Mapped[List["IncomingDirectionStudent"]] = relationship(
+        back_populates="direction"
+    )
+    incoming_direction_files: Mapped[List["ExcelDataFile"]] = relationship(
+        back_populates="excel_rel"
+    )
+
+class ExcelDataFile(Base):
+    __tablename__ = 'excel_data_file'
+
+    id: Mapped[int] =  mapped_column(primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(
+        String(300), nullable=False, comment='Название файла'
+    )
+    code_file: Mapped[int]
+    incoming_direction_id: Mapped[int] = mapped_column(ForeignKey('incoming_direction.id'), nullable=False)
+
+    # incoming_direction_student: Mapped["IncomingDirectionStudent"] = relationship(
+    #     back_populates="incoming_direction"
+    # )
+    excel_rel: Mapped["IncomingDirection"] = relationship(
+        back_populates="incoming_direction_files"  # ← имя атрибута в IncomingDirection
+    )
+
+
 
 class Student(Base):
     __tablename__ = 'student'
@@ -96,8 +132,62 @@ class Student(Base):
         back_populates="students"
     )
 
+    # student: Mapped["IncomingDirectionStudent"] = relationship(
+    #     back_populates="student"
+    # )
+    incoming_direction_students: Mapped[List["IncomingDirectionStudent"]] = relationship(
+        back_populates="student"  # ← имя атрибута в IncomingDirectionStudent
+    )
+
     def __repr__(self) -> str:
         return f"<Student(id={self.id}, full_name='{self.full_name}')>"
+    
+class IncomingDirectionStudent(Base):
+    __tablename__ = 'incoming_direction_student'
+
+    id: Mapped[int] =  mapped_column(primary_key=True, autoincrement=True)
+    student_id: Mapped[int] = mapped_column(ForeignKey('student.id'), nullable=False)
+    incoming_direction_id: Mapped[int] = mapped_column(ForeignKey('incoming_direction.id'), nullable=False)
+
+    # student: Mapped[List["Student"]] = relationship(
+    #     back_populates="incoming_direction_student"
+    # )
+    # direction: Mapped["IncomingDirection"] = relationship(
+    #     back_populates="incoming_direction_student"
+    # )
+
+    student: Mapped["Student"] = relationship(
+        back_populates="incoming_direction_students"  # ← имя атрибута в Student
+    )
+    # MANY-to-ONE → один объект (FK здесь)
+    direction: Mapped["IncomingDirection"] = relationship(
+        back_populates="incoming_direction_students"  # ← имя атрибута в IncomingDirection
+    )
+
+
+
+# class Student(Base):
+#     __tablename__ = 'student'
+
+#     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+#     full_name: Mapped[str] = mapped_column(
+#         String(300), nullable=False, comment='ФИО'
+#     )
+#     specialization_id: Mapped[int] = mapped_column(
+#         ForeignKey('specialization.id'), nullable=False,
+#         comment='ID Специализации'
+#     )
+
+#     file_name: Mapped[str] = mapped_column(
+#         String(500), nullable=False, comment='Код файла'
+#     )
+
+#     specialization: Mapped["Specialization"] = relationship(
+#         back_populates="students"
+#     )
+
+#     def __repr__(self) -> str:
+#         return f"<Student(id={self.id}, full_name='{self.full_name}')>"
 
 class FormatControl(Base):
     __tablename__ = 'format_control'
