@@ -100,7 +100,7 @@ class ExcelDataFile(Base):
     name: Mapped[str] = mapped_column(
         String(300), nullable=False, comment='Название файла'
     )
-    code_file: Mapped[int]
+    code_file: Mapped[int] = mapped_column(nullable=False)
     incoming_direction_id: Mapped[int] = mapped_column(ForeignKey('incoming_direction.id'), nullable=False)
 
     # incoming_direction_student: Mapped["IncomingDirectionStudent"] = relationship(
@@ -125,6 +125,9 @@ class Student(Base):
     )
 
     file_name: Mapped[str] = mapped_column(
+        String(500), nullable=True, comment='Код файла'
+    )
+    file_code: Mapped[str] = mapped_column(
         String(500), nullable=False, comment='Код файла'
     )
 
