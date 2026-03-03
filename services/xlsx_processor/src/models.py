@@ -68,9 +68,9 @@ class Specialization(Base):
     students: Mapped[List["Student"]] = relationship(
         back_populates="specialization"
     )
-    control_tables: Mapped[List["ControlTable"]] = relationship(
-        back_populates="specialization"
-    )
+    # control_tables: Mapped[List["ControlTable"]] = relationship(
+    #     back_populates="specialization"
+    # )
 
     def __repr__(self) -> str:
         return f"<Specialization(id={self.id}, name='{self.name}')>"
