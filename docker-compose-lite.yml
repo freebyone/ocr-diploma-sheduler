@@ -224,12 +224,8 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
-    environment:
-      MINIO_ENDPOINT: minio:9000
-      MINIO_ACCESS_KEY: ocrminio
-      MINIO_SECRET_KEY: admin123456
-      DATABASE_URL: postgresql://ocr_user:ocr_password@postgres:5432/ocr_db
-      POLL_INTERVAL: "30"
+    env_file:
+      - ./services/llm_parser_service/.env
     networks:
       - network
     restart: unless-stopped
