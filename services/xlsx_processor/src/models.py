@@ -80,17 +80,22 @@ class IncomingDirection(Base):
 
     id: Mapped[int] =  mapped_column(primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(
-        String(300), nullable=False, comment='Название направления'
+        String(300), nullable=False, comment='Название направления из эксель с титула'
     )
-
     # incoming_direction_student: Mapped["IncomingDirectionStudent"] = relationship(
     #     back_populates="incoming_direction"
     # )
-    incoming_direction_students: Mapped[List["IncomingDirectionStudent"]] = relationship(
-        back_populates="direction"
-    )
+    # incoming_direction_students: Mapped[List["IncomingDirectionStudent"]] = relationship(
+    #     back_populates="direction"
+    # )
     incoming_direction_files: Mapped[List["ExcelDataFile"]] = relationship(
         back_populates="excel_rel"
+    )
+    incoming_direction_student: Mapped[List["Student"]] = relationship(
+        back_populates="inc_student"
+    )
+    incoming_direction_table: Mapped[List["ControlTable"]] = relationship(
+        back_populates="inc_cntrl_table"
     )
 
 class ExcelDataFile(Base):
@@ -98,9 +103,12 @@ class ExcelDataFile(Base):
 
     id: Mapped[int] =  mapped_column(primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(
-        String(300), nullable=False, comment='Название файла'
+        String(300), nullable=False, comment='Название файла эксель'
     )
-    code_file: Mapped[int] = mapped_column(nullable=False)
+    full_name: Mapped[str] = mapped_column(
+        String(300), nullable=False, comment='ФИО из эксель с титула'
+    )
+    code_file: Mapped[int] = mapped_column(nullable=False, unique=True)
     incoming_direction_id: Mapped[int] = mapped_column(ForeignKey('incoming_direction.id'), nullable=False)
 
     # incoming_direction_student: Mapped["IncomingDirectionStudent"] = relationship(
@@ -121,51 +129,55 @@ class Student(Base):
     )
     specialization_id: Mapped[int] = mapped_column(
         ForeignKey('specialization.id'), nullable=False,
-        comment='ID Специализации'
+        comment='ID Специализации из пдф'
+    )
+    incoming_direction_id: Mapped[int] = mapped_column(
+        ForeignKey('incoming_direction.id'), nullable=False,
+        comment='ID напраления из пдф'
     )
 
     file_name: Mapped[str] = mapped_column(
-        String(500), nullable=True, comment='Код файла'
+        String(500), nullable=True, comment='Код файла пдф'
     )
     file_code: Mapped[str] = mapped_column(
-        String(500), nullable=False, comment='Код файла'
+        String(500), nullable=False, unique=True, comment='Код файла'
     )
 
     specialization: Mapped["Specialization"] = relationship(
         back_populates="students"
     )
 
-    # student: Mapped["IncomingDirectionStudent"] = relationship(
-    #     back_populates="student"
-    # )
-    incoming_direction_students: Mapped[List["IncomingDirectionStudent"]] = relationship(
-        back_populates="student"  # ← имя атрибута в IncomingDirectionStudent
+    inc_student: Mapped["IncomingDirection"] = relationship(
+        back_populates="incoming_direction_student"
     )
+#     incoming_direction_students: Mapped[List["IncomingDirectionStudent"]] = relationship(
+#         back_populates="student"  # ← имя атрибута в IncomingDirectionStudent
+#     )
 
-    def __repr__(self) -> str:
-        return f"<Student(id={self.id}, full_name='{self.full_name}')>"
+#     def __repr__(self) -> str:
+#         return f"<Student(id={self.id}, full_name='{self.full_name}')>"
     
-class IncomingDirectionStudent(Base):
-    __tablename__ = 'incoming_direction_student'
+# class IncomingDirectionStudent(Base):
+#     __tablename__ = 'incoming_direction_student'
 
-    id: Mapped[int] =  mapped_column(primary_key=True, autoincrement=True)
-    student_id: Mapped[int] = mapped_column(ForeignKey('student.id'), nullable=False)
-    incoming_direction_id: Mapped[int] = mapped_column(ForeignKey('incoming_direction.id'), nullable=False)
+#     id: Mapped[int] =  mapped_column(primary_key=True, autoincrement=True)
+#     student_id: Mapped[int] = mapped_column(ForeignKey('student.id'), nullable=False)
+#     incoming_direction_id: Mapped[int] = mapped_column(ForeignKey('incoming_direction.id'), nullable=False)
 
-    # student: Mapped[List["Student"]] = relationship(
-    #     back_populates="incoming_direction_student"
-    # )
-    # direction: Mapped["IncomingDirection"] = relationship(
-    #     back_populates="incoming_direction_student"
-    # )
+#     # student: Mapped[List["Student"]] = relationship(
+#     #     back_populates="incoming_direction_student"
+#     # )
+#     # direction: Mapped["IncomingDirection"] = relationship(
+#     #     back_populates="incoming_direction_student"
+#     # )
 
-    student: Mapped["Student"] = relationship(
-        back_populates="incoming_direction_students"  # ← имя атрибута в Student
-    )
-    # MANY-to-ONE → один объект (FK здесь)
-    direction: Mapped["IncomingDirection"] = relationship(
-        back_populates="incoming_direction_students"  # ← имя атрибута в IncomingDirection
-    )
+#     student: Mapped["Student"] = relationship(
+#         back_populates="incoming_direction_students"  # ← имя атрибута в Student
+#     )
+#     # MANY-to-ONE → один объект (FK здесь)
+#     direction: Mapped["IncomingDirection"] = relationship(
+#         back_populates="incoming_direction_students"  # ← имя атрибута в IncomingDirection
+#     )
 
 
 
@@ -197,7 +209,7 @@ class FormatControl(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     format_name: Mapped[str] = mapped_column(
-        String(300), nullable=False, comment='Формат контроля'
+        String(300), nullable=False, comment='Формат контроля (зачет/экзамен) с листа переаттестация эксель'
     )
 
     control_tables_norma: Mapped[List["ControlTable"]] = relationship(
@@ -218,7 +230,7 @@ class FormatRetests(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     format_name: Mapped[str] = mapped_column(
-        String(300), nullable=False, comment='Формат переатестации'
+        String(300), nullable=False, comment='Формат переатестации например Переаттестовано(частично) с листа переаттестация эксель'
     )
 
     control_tables: Mapped[List["ControlTable"]] = relationship(
@@ -234,7 +246,7 @@ class StudyProgram(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(
-        String(300), nullable=False, comment='Наименование предмета'
+        String(300), nullable=False, comment='Наименование предмета с листа переаттестация эксель'
     )
 
     control_tables: Mapped[List["ControlTable"]] = relationship(
@@ -249,10 +261,11 @@ class ControlTable(Base):
     __tablename__ = 'control_table'
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    specialization_id: Mapped[Optional[int]] = mapped_column(
-        ForeignKey('specialization.id'), nullable=True,
-        comment='ID Специализации'
+    incoming_direction_id: Mapped[int] = mapped_column(
+        ForeignKey('incoming_direction.id'), nullable=False,
+        comment='ID напраления'
     )
+
     study_program_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey('study_program.id'), nullable=True,
         comment='ID Предмета'
@@ -270,15 +283,15 @@ class ControlTable(Base):
         comment='ID Формат переатестации'
     )
     hours_fact: Mapped[Optional[str]] = mapped_column(
-        String(200), nullable=True, comment='Часы ФАКТ'
+        String(200), nullable=True, comment='Часы ФАКТ (Изучено/зачтено)'
     )
     hours_normal: Mapped[Optional[str]] = mapped_column(
-        String(200), nullable=True, comment='Часы НОРМА'
+        String(200), nullable=True, comment='Часы По плану'
     )
 
-    specialization: Mapped[Optional["Specialization"]] = relationship(
-        back_populates="control_tables"
-    )
+    # specialization: Mapped[Optional["Specialization"]] = relationship(
+    #     back_populates="control_tables"
+    # )
     study_program: Mapped[Optional["StudyProgram"]] = relationship(
         back_populates="control_tables"
     )
@@ -292,6 +305,9 @@ class ControlTable(Base):
     )
     format_retests: Mapped[Optional["FormatRetests"]] = relationship(
         back_populates="control_tables"
+    )
+    inc_cntrl_table: Mapped["IncomingDirection"] = relationship(
+        back_populates="incoming_direction_table"
     )
     
     def __repr__(self) -> str:
