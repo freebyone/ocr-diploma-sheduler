@@ -216,9 +216,9 @@ services:
       - network
     restart: unless-stopped
 
-  parser-service:
-    build: ./services/parser_service/
-    container_name: ocr-parser-service
+  llm-parser-service:
+    build: ./services/llm_parser_service/
+    container_name: llm-parser-service
     depends_on:
       postgres:
         condition: service_healthy

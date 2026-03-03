@@ -117,7 +117,8 @@ def get_specialization_full(
 
 
 def get_or_create_specialization(
-    session: Session, name: str, direction_id: int, university_id: int, specialization_code: str
+    session: Session, name: str, direction_id: int,
+    university_id: int, specialization_code: str
 ) -> Specialization:
     spec = get_specialization_full(session, name, direction_id, university_id)
     if spec:
@@ -128,7 +129,7 @@ def get_or_create_specialization(
         name=name,
         direction_id=direction_id,
         university_id=university_id,
-        code = specialization_code
+        code=specialization_code
     )
     session.add(spec)
     session.flush()
@@ -163,8 +164,14 @@ def get_student_by_name_and_spec(
 
 
 def get_or_create_student(
-    session: Session, full_name: str, specialization_id: int
+    session: Session, full_name: str, specialization_id: int,
+    file_code: str, file_name: str = None
 ) -> Student:
+    """
+    Создаёт или находит студента.
+    file_code — числовой префикс из имени файла (например '0001')
+    file_name — исходное имя файла (например '0001.jpg')
+    """
     student = get_student_by_name_and_spec(
         session, full_name, specialization_id
     )
@@ -174,7 +181,9 @@ def get_or_create_student(
 
     student = Student(
         full_name=full_name,
-        specialization_id=specialization_id
+        specialization_id=specialization_id,
+        file_code=file_code,
+        file_name=file_name
     )
     session.add(student)
     session.flush()
@@ -337,11 +346,16 @@ def save_diploma_data(
     direction_name: str,
     university_name: str,
     specialization_name: str,
-    specialization_code: str
+    specialization_code: str,
+    file_code: str,
+    file_name: str = None
 ) -> dict:
     """
     Сохраняет данные диплома в БД.
     Создаёт или находит все связанные сущности.
+    
+    file_code — числовой префикс ('0001')
+    file_name — имя исходного изображения ('0001.jpg')
     """
     logger.info("=" * 50)
     logger.info("Saving diploma data to database")
@@ -349,7 +363,9 @@ def save_diploma_data(
     logger.info(f"  Direction:      {direction_name}")
     logger.info(f"  University:     {university_name}")
     logger.info(f"  Specialization: {specialization_name}")
-    logger.info(f"  Specialization CODE: {specialization_code}")
+    logger.info(f"  Spec CODE:      {specialization_code}")
+    logger.info(f"  File CODE:      {file_code}")
+    logger.info(f"  File NAME:      {file_name}")
 
     # 1. Направление
     direction = get_or_create_direction(session, direction_name)
@@ -359,12 +375,15 @@ def save_diploma_data(
 
     # 3. Специализация
     specialization = get_or_create_specialization(
-        session, specialization_name, direction.id, university.id, specialization_code
+        session, specialization_name, direction.id,
+        university.id, specialization_code
     )
 
-    # 4. Студент
+    # 4. Студент (с file_code и file_name)
     student = get_or_create_student(
-        session, full_name, specialization.id
+        session, full_name, specialization.id,
+        file_code=file_code,
+        file_name=file_name
     )
 
     logger.info("Diploma data saved successfully")
