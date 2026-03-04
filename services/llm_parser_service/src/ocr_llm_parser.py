@@ -2,6 +2,7 @@ from langchain_gigachat.chat_models import GigaChat
 from pydantic import BaseModel, Field
 import logging
 import re
+import json
 from typing import List, Optional
 
 logging.basicConfig(
@@ -12,24 +13,9 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-class StudentInfo(BaseModel):
-    full_name: Optional[str] = Field(
-        default=None,
-        description="ФИО студента. Фамилия имя и отчество при наличии вместе через пробел"
-    )
-    direction: Optional[str] = Field(
-        default=None,
-        description="Это квалификация студента"
-    )
-    specialization: Optional[str] = Field(
-        default=None,
-        description="Это специальность на которой учился студент"
-    )
-    university: Optional[str] = Field(
-        default=None,
-        description="Название университета"
-    )
-
+# ============================================================
+# Models
+# ============================================================
 
 class ParsedStudent(BaseModel):
     full_name: Optional[str] = None
@@ -62,151 +48,180 @@ class ParsedStudent(BaseModel):
         return missing
 
 
+# ============================================================
+# LLM Parser
+# ============================================================
+
 class LLMParser:
+
     def __init__(self, model: GigaChat):
         self._model = model
+
+    # -------------------------------
+    # Main method
+    # -------------------------------
 
     def parse_image_text(self, text: str) -> ParsedStudent:
         """
         Парсит OCR текст через LLM.
-        ВСЕГДА возвращает ParsedStudent (никогда не None).
+        ВСЕГДА возвращает ParsedStudent.
         """
-        input_prompt = f"""ТВОЯ РОЛЬ ИЗВЛЕКАТЬ ДАННЫЕ ИЗ ТЕКСТА. 
-        На вход тебе поступает текст с картинки который в нечитаемом формате.
-        Твоя задача распознать в этом тексте:
-        1. Фамилию Имя Отчество
-        2. Квалификацию студента, например Дизайнер, Бухгалтер, Юрист
-        3. Специальность с кодом, например 38.02.01 Экономика и бухгалтерский учет
-        4. Название университета
-        Выдать все это в JSON формате 
-        JSON должен выглядеть так:
-        {{
-            "full_name": "Иванов Иван Иванович",
-            "direction": "Бухгалтер",
-            "specialization": "38.02.01 Экономика и бухгалтерский учет",
-            "university": "ФГБОУ им. Г.В. Плеханова"
-        }}
 
-        Вот текст который надо распознать:
-        {text}
-        """
+        input_prompt = f"""
+ТВОЯ РОЛЬ — ИЗВЛЕЧЕНИЕ ДАННЫХ ИЗ ТЕКСТА.
+
+Извлеки строго в JSON формате:
+
+1. Фамилию Имя Отчество
+2. Квалификацию студента (например: Юрист, Бухгалтер)
+3. Специальность с кодом (например: 38.02.01 Экономика и бухгалтерский учет)
+4. Название университета
+
+ВЕРНИ ТОЛЬКО ЧИСТЫЙ JSON.
+БЕЗ markdown.
+БЕЗ пояснений.
+БЕЗ текста вне JSON.
+
+Формат:
+{{
+    "full_name": "Иванов Иван Иванович",
+    "direction": "Бухгалтер",
+    "specialization": "38.02.01 Экономика и бухгалтерский учет",
+    "university": "ФГБОУ им. Г.В. Плеханова"
+}}
+
+Текст:
+{text}
+"""
 
         parsed_student = ParsedStudent()
 
-        # 1. Создаём structured LLM
-        try:
-            logger.info("Structuring LLM")
-            structured_llm = self._model.with_structured_output(
-                StudentInfo,
-                method="json_mode",
-                include_raw=True
-            )
-        except Exception as e:
-            error_msg = f"Error structuring LLM: {e}"
-            logger.error(error_msg)
-            parsed_student.errors.append(error_msg)
-            return parsed_student  # ← ВОЗВРАЩАЕМ, а не проваливаемся дальше
-
-        # 2. Вызываем LLM
+        # 1️⃣ Вызов LLM
         try:
             logger.info("Invoking LLM")
-            response = structured_llm.invoke(input_prompt)
+            response = self._model.invoke(input_prompt)
+            raw_content = response.content if hasattr(response, "content") else str(response)
 
-            logger.info(f"LLM raw response type: {type(response)}")
-            logger.info(f"LLM raw response: {response}")
-
-            # Проверяем что response — это dict с ключом "parsed"
-            if isinstance(response, dict):
-                parsed = response.get("parsed")
-                raw = response.get("raw")
-
-                if raw:
-                    logger.info(f"LLM raw output: {raw}")
-
-                if parsed is None:
-                    error_msg = (
-                        f"LLM returned dict but 'parsed' is None. "
-                        f"Keys: {list(response.keys())}"
-                    )
-                    logger.error(error_msg)
-
-                    # Попробуем извлечь из parsing_error
-                    parsing_error = response.get("parsing_error")
-                    if parsing_error:
-                        logger.error(f"Parsing error: {parsing_error}")
-                        parsed_student.errors.append(
-                            f"LLM parsing error: {parsing_error}"
-                        )
-                    else:
-                        parsed_student.errors.append(error_msg)
-
-                    return parsed_student
-
-            elif isinstance(response, StudentInfo):
-                # Если вернулся напрямую объект (без include_raw)
-                parsed = response
-            else:
-                error_msg = (
-                    f"Unexpected response type: {type(response)}. "
-                    f"Value: {response}"
-                )
-                logger.error(error_msg)
-                parsed_student.errors.append(error_msg)
-                return parsed_student
-
-            # 3. Заполняем ParsedStudent
-            logger.info(f"Parsed StudentInfo: {parsed}")
-
-            parsed_student.full_name = parsed.full_name
-            parsed_student.direction = parsed.direction
-            parsed_student.university = parsed.university
-
-            # 4. Разделяем код и название специальности
-            if parsed.specialization:
-                splited = LLMParser.split_code(parsed.specialization)
-                if isinstance(splited, dict):
-                    parsed_student.code = splited["code"]
-                    parsed_student.specialization = splited["name"]
-                else:
-                    parsed_student.code = None
-                    parsed_student.specialization = parsed.specialization
-            else:
-                parsed_student.specialization = None
-                parsed_student.code = None
-
-            logger.info(f"Final parsed result:")
-            logger.info(f"  full_name:      {parsed_student.full_name}")
-            logger.info(f"  direction:      {parsed_student.direction}")
-            logger.info(f"  university:     {parsed_student.university}")
-            logger.info(f"  specialization: {parsed_student.specialization}")
-            logger.info(f"  code:           {parsed_student.code}")
-            logger.info(f"  is_valid:       {parsed_student.is_valid}")
-
-            return parsed_student
+            logger.info(f"LLM raw output:\n{raw_content}")
 
         except Exception as e:
             error_msg = f"Error invoking LLM: {e}"
             logger.error(error_msg)
-            import traceback
-            logger.error(traceback.format_exc())
             parsed_student.errors.append(error_msg)
-            return parsed_student  # ← ВСЕГДА возвращаем объект
+            return parsed_student
+
+        # 2️⃣ Извлекаем JSON
+        data = self.extract_json(raw_content)
+
+        if not data:
+            parsed_student.errors.append("Не удалось извлечь JSON из ответа LLM")
+            return parsed_student
+
+        # 3️⃣ Заполняем объект
+        parsed_student.full_name = self.clean_text(data.get("full_name"))
+        parsed_student.direction = self.clean_text(data.get("direction"))
+        parsed_student.university = self.clean_text(data.get("university"))
+
+        specialization_raw = self.clean_text(data.get("specialization"))
+
+        if specialization_raw:
+            splitted = self.split_code(specialization_raw)
+            if isinstance(splitted, dict):
+                parsed_student.code = splitted["code"]
+                parsed_student.specialization = splitted["name"]
+            else:
+                parsed_student.specialization = splitted
+
+        logger.info("Final parsed result:")
+        logger.info(f"  full_name:      {parsed_student.full_name}")
+        logger.info(f"  direction:      {parsed_student.direction}")
+        logger.info(f"  university:     {parsed_student.university}")
+        logger.info(f"  specialization: {parsed_student.specialization}")
+        logger.info(f"  code:           {parsed_student.code}")
+        logger.info(f"  is_valid:       {parsed_student.is_valid}")
+
+        return parsed_student
+
+    # ============================================================
+    # Helpers
+    # ============================================================
+    @staticmethod
+    def extract_json(text: str) -> Optional[dict]:
+        """
+        Устойчивое извлечение JSON из ответа модели.
+        Чинит:
+        - типографские кавычки
+        - control characters
+        - markdown
+        """
+
+        try:
+            # 1️⃣ Вырезаем JSON блок
+            match = re.search(r'\{.*\}', text, re.DOTALL)
+            if not match:
+                return None
+
+            json_str = match.group(0)
+
+            # 2️⃣ Нормализация кавычек
+            replacements = {
+                "“": '"',
+                "”": '"',
+                "„": '"',
+                "«": '"',
+                "»": '"',
+                "’": "'",
+            }
+
+            for bad, good in replacements.items():
+                json_str = json_str.replace(bad, good)
+
+            # 3️⃣ Удаляем control characters
+            json_str = re.sub(r'[\x00-\x1F\x7F]', '', json_str)
+
+            # 4️⃣ Убираем лишние запятые перед }
+            json_str = re.sub(r',\s*}', '}', json_str)
+
+            logger.info(f"Normalized JSON:\n{json_str}")
+
+            return json.loads(json_str)
+
+        except Exception as e:
+            logger.error(f"JSON extraction error after normalization: {e}")
+            return None
+
+    @staticmethod
+    def clean_text(text: Optional[str]) -> Optional[str]:
+        """
+        Очищает мусор из OCR:
+        - лишние кавычки
+        - переносы строк
+        - двойные пробелы
+        """
+
+        if not text:
+            return None
+
+        text = text.strip()
+        text = re.sub(r'[»«"\n]', '', text)
+        text = re.sub(r'\s+', ' ', text)
+
+        return text.strip()
 
     @staticmethod
     def split_code(specialization: str) -> dict | str:
         """
         '38.02.01 Экономика и бухгалтерский учет'
         → {'code': '38.02.01', 'name': 'Экономика и бухгалтерский учет'}
-        
-        'Просто название'
-        → 'Просто название'
         """
+
         pattern = r'^([\d\.]+)\s+(.+)$'
         match = re.match(pattern, specialization.strip())
+
         if match:
             code = match.group(1)
             name = match.group(2)
             logger.info(f"Split code: {code} | name: {name}")
             return {"code": code, "name": name}
-        else:
-            return specialization
+
+        return specialization
