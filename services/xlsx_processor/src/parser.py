@@ -1,589 +1,433 @@
+import pandas as pd
+import os
 import re
-from typing import Optional, Dict, List, Tuple, Any
 from openpyxl import load_workbook
-from sqlalchemy import create_engine, select
-from sqlalchemy.orm import Session, sessionmaker
-import logging
+from sqlalchemy.orm import Session
+from typing import Optional, List, Dict
 
-# Исправленные импорты для работы в структуре src
-from src.models import (
-    Base, Direction, Specialization, 
-    StudyProgram, FormatControl, FormatRetests, ControlTable
+from models import (
+    IncomingDirection, ExcelDataFile, Student,
+    FormatControl, FormatRetests, StudyProgram, ControlTable
 )
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
-class XLSXParser:
-    def __init__(self, file_path: str, db_url: str):
-        self.file_path = file_path
-        self.wb = load_workbook(file_path, data_only=True)
-        
-        # Настройка подключения к БД
-        self.engine = create_engine(db_url)
-        self.Session = sessionmaker(bind=self.engine)
-        
-        # Создаем таблицы, если их нет
-        Base.metadata.create_all(self.engine)
-    
-    def _clean_text(self, text: str) -> str:
-        """Очистка текста от HTML тегов и специальных символов"""
-        if not text:
-            return ""
-        
-        # Удаляем HTML теги
-        text = re.sub(r'<[^>]+>', '', str(text))
-        # Заменяем специальные символы
-        text = text.replace('_x000d_', ' ').replace('\n', ' ').replace('\r', ' ')
-        # Удаляем лишние пробелы
-        text = re.sub(r'\s+', ' ', text).strip()
-        
-        return text
-    
-    def _get_or_create_direction(self, name: str) -> Optional[Direction]:
-        """Получить или создать направление"""
-        if not name:
-            return None
-            
-        cleaned_name = self._clean_text(name)
-        if not cleaned_name:
-            return None
-            
-        # Создаем новую сессию
-        session = self.Session()
-        try:
-            direction = session.execute(
-                select(Direction).where(Direction.name == cleaned_name)
-            ).scalar_one_or_none()
-            
-            if not direction:
-                direction = Direction(name=cleaned_name)
-                session.add(direction)
-                session.commit()
-                logger.info(f"Создано новое направление: {cleaned_name}")
-            
-            # Возвращаем копию данных, а не объект, привязанный к сессии
-            result = {
-                'id': direction.id,
-                'name': direction.name
-            }
-            return result
-        finally:
-            session.close()
-    
-    def _get_or_create_specialization(
-        self, 
-        name: str, 
-        code: str,
-        direction_id: Optional[int] = None
-    ) -> Optional[Dict]:
-        """Получить или создать специализацию (без привязки к вузу)"""
-        cleaned_name = self._clean_text(name)
-        cleaned_code = self._clean_text(code) if code else ""
-        
-        if not cleaned_name:
-            return None
-            
-        # Создаем новую сессию
-        session = self.Session()
-        try:
-            specialization = session.execute(
-                select(Specialization).where(
-                    Specialization.name == cleaned_name,
-                    Specialization.code == cleaned_code
+# ══════════════════════════════════════════════
+#  УТИЛИТЫ
+# ══════════════════════════════════════════════
+
+def get_or_create(session: Session, model, **kwargs):
+    """Найти запись или создать новую"""
+    instance = session.query(model).filter_by(**kwargs).first()
+    if not instance:
+        instance = model(**kwargs)
+        session.add(instance)
+        session.flush()  # чтобы получить id
+    return instance
+
+
+# ══════════════════════════════════════════════
+#  ПАРСИНГ ЛИСТА "ТИТУЛ"
+# ══════════════════════════════════════════════
+
+def parse_title_sheet(filepath: str) -> dict:
+    """
+    Извлекает с листа Титул:
+    - direction_name: направление подготовки
+    - full_name: ФИО студента
+    """
+    result = {
+        'direction_name': None,
+        'full_name': None,
+    }
+
+    # ── Способ 1: через openpyxl (надёжнее для merged cells) ──
+    wb = load_workbook(filepath, data_only=True)
+
+    # Определяем имя листа (может быть разное написание)
+    title_sheet_name = None
+    for name in wb.sheetnames:
+        if 'титул' in name.lower():
+            title_sheet_name = name
+            break
+
+    if not title_sheet_name:
+        raise ValueError(f"Лист 'Титул' не найден. Листы: {wb.sheetnames}")
+
+    ws = wb[title_sheet_name]
+
+    for row in ws.iter_rows():
+        for cell in row:
+            val = cell.value
+            if not val or not isinstance(val, str):
+                continue
+
+            val_clean = val.strip()
+
+            # ── Направление подготовки ──
+            if 'Направление подготовки' in val_clean:
+                result['direction_name'] = (
+                    re.sub(r'\s+', ' ',
+                           val_clean
+                           .replace('\n', ' ')
+                           .replace('_x000D_', '')
+                           .replace('\r', ' '))
+                    .strip()
                 )
-            ).scalar_one_or_none()
-            
-            if not specialization:
-                specialization = Specialization(
-                    name=cleaned_name,
-                    code=cleaned_code,
-                    direction_id=direction_id,
-                    university_id=None
-                )
-                session.add(specialization)
-                session.commit()
-                logger.info(f"Создана новая специализация: {cleaned_name} ({cleaned_code})")
-            else:
-                # Обновляем direction_id, если нужно
-                if direction_id and specialization.direction_id != direction_id:
-                    specialization.direction_id = direction_id
-                    session.commit()
-                    logger.info(f"Обновлен direction_id для специализации {cleaned_name}")
-            
-            # Возвращаем копию данных
-            result = {
-                'id': specialization.id,
-                'name': specialization.name,
-                'code': specialization.code,
-                'direction_id': specialization.direction_id
-            }
-            return result
-        finally:
-            session.close()
-    
-    def _get_or_create_study_program(self, name: str) -> Optional[Dict]:
-        """Получить или создать учебную программу (предмет)"""
-        if not name:
-            return None
-            
-        cleaned_name = self._clean_text(name)
-        if not cleaned_name or cleaned_name in ["Наименование", "Индекс", "-"]:
-            return None
-            
-        session = self.Session()
-        try:
-            program = session.execute(
-                select(StudyProgram).where(StudyProgram.name == cleaned_name)
-            ).scalar_one_or_none()
-            
-            if not program:
-                program = StudyProgram(name=cleaned_name)
-                session.add(program)
-                session.commit()
-                logger.info(f"Создана новая учебная программа: {cleaned_name}")
-            
-            result = {
-                'id': program.id,
-                'name': program.name
-            }
-            return result
-        finally:
-            session.close()
-    
-    def _get_or_create_format_control(self, format_name: str) -> Optional[Dict]:
-        """Получить или создать формат контроля"""
-        if not format_name:
-            return None
-            
-        cleaned_name = self._clean_text(format_name)
-        if not cleaned_name or cleaned_name in ["Форма пром. атт.", "-"]:
-            return None
-            
-        session = self.Session()
-        try:
-            format_control = session.execute(
-                select(FormatControl).where(FormatControl.format_name == cleaned_name)
-            ).scalar_one_or_none()
-            
-            if not format_control:
-                format_control = FormatControl(format_name=cleaned_name)
-                session.add(format_control)
-                session.commit()
-                logger.info(f"Создан новый формат контроля: {cleaned_name}")
-            
-            result = {
-                'id': format_control.id,
-                'name': format_control.format_name
-            }
-            return result
-        finally:
-            session.close()
-    
-    def _get_or_create_format_retests(self, format_name: str) -> Optional[Dict]:
-        """Получить или создать формат переаттестации"""
-        if not format_name:
-            return None
-            
-        cleaned_name = self._clean_text(format_name)
-        if not cleaned_name or cleaned_name in ["Форма пром. атт.", "-"]:
-            return None
-            
-        session = self.Session()
-        try:
-            format_retests = session.execute(
-                select(FormatRetests).where(FormatRetests.format_name == cleaned_name)
-            ).scalar_one_or_none()
-            
-            if not format_retests:
-                format_retests = FormatRetests(format_name=cleaned_name)
-                session.add(format_retests)
-                session.commit()
-                logger.info(f"Создан новый формат переаттестации: {cleaned_name}")
-            
-            result = {
-                'id': format_retests.id,
-                'name': format_retests.format_name
-            }
-            return result
-        finally:
-            session.close()
-    
-    def parse_title_page(self) -> Tuple[Optional[Dict], Optional[Dict]]:
-        """Парсинг титульной страницы"""
-        if "Титул" not in self.wb.sheetnames:
-            logger.error("Страница 'Титул' не найдена")
-            return None, None
-            
-        sheet = self.wb["Титул"]
-        
-        # Ищем ячейку с "Направление подготовки"
-        specialization_data = None
-        for row in sheet.iter_rows(min_row=1, max_row=50):
-            for cell in row:
-                if cell.value and "Направление подготовки" in str(cell.value):
-                    specialization_data = str(cell.value)
-                    break
-            if specialization_data:
-                break
-        
-        if not specialization_data:
-            logger.error("Не найдены данные о направлении подготовки")
-            return None, None
-        
-        # Очищаем данные
-        specialization_data = self._clean_text(specialization_data)
-        logger.info(f"Найдены данные: {specialization_data}")
-        
-        # Парсим код и название специальности
-        code_pattern = r'(\d{2}\.\d{2}\.\d{2})\s+([А-Яа-яA-Za-z\s\-]+?)(?:\s+направленность|\s*$)'
-        code_match = re.search(code_pattern, specialization_data, re.IGNORECASE)
-        
-        specialization_code = None
-        specialization_name = None
-        
-        if code_match:
-            specialization_code = code_match.group(1)
-            specialization_name = code_match.group(2).strip()
-        else:
-            alt_pattern = r'(\d{2}\.\d{2}\.\d{2})\s+([^,\.]+)'
-            alt_match = re.search(alt_pattern, specialization_data)
-            if alt_match:
-                specialization_code = alt_match.group(1)
-                specialization_name = alt_match.group(2).strip()
-        
-        # Парсим направленность (профиль)
-        direction_pattern = r'направленность\s*\(профиль\)\s*программы\s*[:"\s]*([^"\)]+)'
-        direction_match = re.search(direction_pattern, specialization_data, re.IGNORECASE)
-        
-        direction_name = None
-        if direction_match:
-            direction_name = direction_match.group(1).strip()
-            direction_name = direction_name.strip('"').strip("'")
-        
-        if not specialization_code or not specialization_name:
-            logger.error("Не удалось извлечь код или название специальности")
-            return None, None
-        
-        # Получаем или создаем направление
-        direction = None
-        direction_id = None
-        if direction_name:
-            direction = self._get_or_create_direction(direction_name)
-            direction_id = direction['id'] if direction else None
-        
-        # Получаем или создаем специализацию
-        specialization = self._get_or_create_specialization(
-            specialization_name, 
-            specialization_code,
-            direction_id
+
+            # ── ФИО студента ──
+            # Ищем по ключевым словам
+            fio_patterns = [
+                r'(?:Студент|Обучающ\w+|ФИО)\s*:?\s*'
+                r'([А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+)',
+                r'(?:Студент|Обучающ\w+)\s*:?\s*(.+)',
+            ]
+            for pattern in fio_patterns:
+                m = re.search(pattern, val_clean)
+                if m and not result['full_name']:
+                    candidate = m.group(1).strip()
+                    if len(candidate) > 5:  # не инициалы
+                        result['full_name'] = candidate
+
+    wb.close()
+
+    # ── Способ 2 (fallback): через pandas ──
+    if not result['direction_name'] or not result['full_name']:
+        df = pd.read_excel(
+            filepath,
+            sheet_name=title_sheet_name,
+            header=None,
+            engine='openpyxl'
         )
-        
-        return specialization, direction
-    
-    def parse_pereattestatsiya_references(self):
-        """Парсинг страницы Переаттестация для заполнения справочников"""
-        if "Переаттестация" not in self.wb.sheetnames:
-            logger.warning("Страница 'Переаттестация' не найдена")
-            return [], [], []
-        
-        sheet = self.wb["Переаттестация"]
-        
-        study_programs = []
-        format_controls = []
-        format_retests = []
-        
-        # Поиск заголовков для определения столбцов
-        headers = self._find_headers(sheet, {
-            'name': ['Наименование', 'Дисциплина', 'Предмет'],
-            'fact': ['Зачет результатов обучения', 'Факт'],
-            'format': ['Форма пром. атт.', 'Форма контроля', 'Переаттестация']
+        for _, row in df.iterrows():
+            for val in row:
+                if pd.isna(val):
+                    continue
+                val_str = str(val).strip()
+
+                if not result['direction_name'] and 'Направление подготовки' in val_str:
+                    result['direction_name'] = re.sub(
+                        r'\s+', ' ',
+                        val_str.replace('\n', ' ')
+                    ).strip()
+
+                if not result['full_name']:
+                    for pat in fio_patterns:
+                        m = re.search(pat, val_str)
+                        if m:
+                            result['full_name'] = m.group(1).strip()
+                            break
+
+    return result
+
+
+# ══════════════════════════════════════════════
+#  ПАРСИНГ ЛИСТА "ПЕРЕАТТЕСТАЦИЯ"
+# ══════════════════════════════════════════════
+
+def parse_reattest_sheet(filepath: str) -> List[Dict]:
+    """
+    Парсит таблицу с листа Переаттестация.
+    Возвращает список словарей — каждый словарь = одна строка таблицы.
+    """
+    # ── Ищем лист ──
+    wb_temp = load_workbook(filepath, read_only=True)
+    sheet_name = None
+    for name in wb_temp.sheetnames:
+        if 'переаттестац' in name.lower():
+            sheet_name = name
+            break
+    wb_temp.close()
+
+    if not sheet_name:
+        raise ValueError(f"Лист 'Переаттестация' не найден")
+
+    df = pd.read_excel(filepath, sheet_name=sheet_name, engine='openpyxl')
+
+    # ── Строим маппинг колонок ──
+    top_headers = df.columns.tolist()
+    sub_headers = df.iloc[1].tolist()  # строка с реальными заголовками
+
+    column_structure = []
+    current_group = None
+
+    for i, (top, sub) in enumerate(zip(top_headers, sub_headers)):
+        top_str = str(top)
+        sub_str = str(sub) if pd.notna(sub) else None
+
+        # Определяем группу
+        if top_str.startswith('Unnamed'):
+            # Часть объединённой ячейки → та же группа
+            group = current_group
+        elif top_str == '-' or top_str.startswith('-.'):
+            # Одиночная колонка
+            group = None
+            current_group = None
+        else:
+            # Новая группа (По плану, Изучено и зачтено, ...)
+            group = top_str
+            current_group = top_str
+
+        # Формируем плоский ключ
+        if group and sub_str:
+            flat_key = f"{group}__{sub_str}"
+        elif sub_str:
+            flat_key = sub_str
+        else:
+            flat_key = f"col_{i}"
+
+        column_structure.append({
+            "index": i,
+            "group": group,
+            "name": sub_str,
+            "flat_key": flat_key,
         })
-        
-        logger.info(f"Найдены заголовки на странице Переаттестация: {headers}")
-        
-        # Парсим данные
-        for row in sheet.iter_rows(min_row=6):
-            name_cell = row[headers.get('name', 1) - 1] if headers.get('name') else row[1]
-            fact_cell = row[headers.get('fact', 5) - 1] if headers.get('fact') else row[5]
-            format_cell = row[headers.get('format', 8) - 1] if headers.get('format') else row[8]
-            
-            name = name_cell.value if name_cell.value else None
-            fact = fact_cell.value if fact_cell.value else None
-            format_name = format_cell.value if format_cell.value else None
-            
-            if not name or str(name) in ["Наименование", "Индекс", "-"]:
-                continue
-            
-            # Сохраняем предмет
-            study_program = self._get_or_create_study_program(str(name))
-            if study_program:
-                study_programs.append(study_program)
-            
-            # Сохраняем формат контроля (факт)
-            if fact and str(fact) not in ["-", "None", ""]:
-                format_control = self._get_or_create_format_control(str(fact))
-                if format_control:
-                    format_controls.append(format_control)
-            
-            # Сохраняем формат переаттестации
-            if format_name and str(format_name) not in ["-", "None", ""]:
-                format_retest = self._get_or_create_format_retests(str(format_name))
-                if format_retest:
-                    format_retests.append(format_retest)
-        
-        # Удаляем дубликаты по ID
-        study_programs = list({p['id']: p for p in study_programs}.values())
-        format_controls = list({f['id']: f for f in format_controls}.values())
-        format_retests = list({r['id']: r for r in format_retests}.values())
-        
-        logger.info(f"Загружено предметов: {len(study_programs)}")
-        logger.info(f"Загружено форматов контроля: {len(format_controls)}")
-        logger.info(f"Загружено форматов переаттестации: {len(format_retests)}")
-        
-        return study_programs, format_controls, format_retests
-    
-    def _find_headers(self, sheet, header_patterns):
-        """Поиск заголовков в таблице"""
-        headers = {}
-        
-        for row in sheet.iter_rows(min_row=1, max_row=10):
-            for cell in row:
-                if cell.value and isinstance(cell.value, str):
-                    value = cell.value.strip().lower()
-                    
-                    for key, patterns in header_patterns.items():
-                        if key in headers:
-                            continue
-                        
-                        for pattern in patterns:
-                            if pattern.lower() in value:
-                                headers[key] = cell.column
-                                break
-        
-        return headers
-    
-    def parse_plan_page(self, specialization: Dict):
-        """Парсинг страницы План для заполнения ControlTable"""
-        if "План" not in self.wb.sheetnames:
-            logger.warning("Страница 'План' не найдена")
-            return []
-        
-        sheet = self.wb["План"]
-        
-        # Поиск заголовков для определения столбцов
-        headers = self._find_headers(sheet, {
-            'name': ['Наименование', 'Дисциплина', 'Предмет'],
-            'hours_normal': ['По плану', 'Норма'],
-            'hours_fact': ['Изучено и зачтено', 'Факт'],
-            'format': ['Формы пром. атт.', 'Экзамен', 'Зачет']
-        })
-        
-        logger.info(f"Найдены заголовки на странице План: {headers}")
-        
-        control_tables = []
-        
-        # Парсим данные
-        for row in sheet.iter_rows(min_row=6):
-            name_cell = row[headers.get('name', 1) - 1] if headers.get('name') else row[1]
-            hours_normal_cell = row[headers.get('hours_normal', 4) - 1] if headers.get('hours_normal') else row[4]
-            hours_fact_cell = row[headers.get('hours_fact', 7) - 1] if headers.get('hours_fact') else row[7]
-            format_cell = row[headers.get('format', 3) - 1] if headers.get('format') else row[3]
-            
-            name = name_cell.value if name_cell.value else None
-            hours_normal = hours_normal_cell.value if hours_normal_cell.value else None
-            hours_fact = hours_fact_cell.value if hours_fact_cell.value else None
-            format_name = format_cell.value if format_cell.value else None
-            
-            if not name or str(name) in ["Наименование", "Индекс", "-"]:
-                continue
-            
-            # Получаем или создаем предмет
-            study_program = self._get_or_create_study_program(str(name))
-            if not study_program:
-                continue
-            
-            # Получаем или создаем формат контроля (норма)
-            format_control_norma = None
-            if format_name and str(format_name) not in ["-", "None", ""]:
-                format_clean = str(format_name).split()[0] if format_name else None
-                if format_clean:
-                    format_control_norma = self._get_or_create_format_control(format_clean)
-            
-            # Создаем запись в ControlTable
-            session = self.Session()
-            try:
-                # Проверяем, нет ли уже такой записи
-                existing = session.execute(
-                    select(ControlTable).where(
-                        ControlTable.specialization_id == specialization['id'],
-                        ControlTable.study_program_id == study_program['id']
-                    )
-                ).scalar_one_or_none()
-                
-                if not existing:
-                    control_table = ControlTable(
-                        specialization_id=specialization['id'],
-                        study_program_id=study_program['id'],
-                        format_control_norma_id=format_control_norma['id'] if format_control_norma else None,
-                        hours_normal=str(hours_normal) if hours_normal else None,
-                        hours_fact=str(hours_fact) if hours_fact else None
-                    )
-                    session.add(control_table)
-                    session.commit()
-                    control_tables.append({
-                        'id': control_table.id,
-                        'specialization_id': control_table.specialization_id,
-                        'study_program_id': control_table.study_program_id
-                    })
-                    logger.info(f"Создана запись ControlTable для предмета: {name}")
-                else:
-                    # Обновляем существующую запись
-                    updated = False
-                    if hours_normal and not existing.hours_normal:
-                        existing.hours_normal = str(hours_normal)
-                        updated = True
-                    if hours_fact and not existing.hours_fact:
-                        existing.hours_fact = str(hours_fact)
-                        updated = True
-                    
-                    if updated:
-                        session.commit()
-                        logger.info(f"Обновлена запись ControlTable для предмета: {name}")
-            finally:
-                session.close()
-        
-        logger.info(f"Создано/обновлено записей ControlTable из плана: {len(control_tables)}")
-        return control_tables
-    
-    def parse_retests_page_for_control(self, specialization: Dict):
-        """Парсинг страницы Переаттестация для заполнения ControlTable"""
-        if "Переаттестация" not in self.wb.sheetnames:
-            return []
-        
-        sheet = self.wb["Переаттестация"]
-        
-        # Поиск заголовков
-        headers = self._find_headers(sheet, {
-            'name': ['Наименование', 'Дисциплина', 'Предмет'],
-            'hours_fact': ['з.е.', 'Часов', 'Факт'],
-            'format_retests': ['Форма пром. атт.', 'Переаттестация']
-        })
-        
-        logger.info(f"Найдены заголовки на странице Переаттестация: {headers}")
-        
-        updated_count = 0
-        
-        # Парсим данные
-        session = self.Session()
+
+    # ── Извлекаем данные (пропускаем строки заголовков) ──
+    data_df = df.iloc[2:].copy().reset_index(drop=True)
+
+    # Убираем строки "Итого"
+    mask_itogo = data_df.iloc[:, 1].astype(str).str.contains('Итого', na=False)
+    data_df = data_df[~mask_itogo]
+
+    # Убираем полностью пустые строки
+    data_df = data_df.dropna(how='all')
+
+    # Forward-fill Индекс и Наименование
+    # (для предметов на несколько семестров, например Б1.В.01)
+    data_df.iloc[:, 0] = data_df.iloc[:, 0].ffill()  # Индекс
+    data_df.iloc[:, 1] = data_df.iloc[:, 1].ffill()  # Наименование
+
+    # Убираем строки где и после ffill нет Наименования
+    data_df = data_df[data_df.iloc[:, 1].notna()]
+    data_df = data_df.reset_index(drop=True)
+
+    # ── Формируем список словарей ──
+    rows = []
+    for _, row in data_df.iterrows():
+        row_dict = {}
+        for col_info in column_structure:
+            val = row.iloc[col_info["index"]]
+            if pd.isna(val):
+                val = None
+            elif hasattr(val, 'item'):
+                val = val.item()
+            row_dict[col_info["flat_key"]] = val
+        rows.append(row_dict)
+
+    return rows
+
+
+# ══════════════════════════════════════════════
+#  СОХРАНЕНИЕ В БД
+# ══════════════════════════════════════════════
+
+def save_excel_to_db(
+    filepath: str,
+    session: Session,
+    code_file: int = None,
+    manual_fio: str = None,
+):
+    """
+    Обрабатывает один Excel файл и сохраняет в БД.
+
+    Args:
+        filepath: путь к .xlsx файлу
+        session: SQLAlchemy сессия
+        code_file: уникальный код файла (если None — генерируется из имени)
+        manual_fio: ФИО вручную (если автоопределение не работает)
+    """
+    filename = os.path.basename(filepath)
+
+    # ═══ 1. Парсим Титул ═══
+    title_data = parse_title_sheet(filepath)
+
+    direction_name = title_data['direction_name']
+    full_name = manual_fio or title_data['full_name'] or filename
+
+    if not direction_name:
+        raise ValueError(f"Направление не найдено в файле {filename}")
+
+    print(f"📄 {filename}")
+    print(f"   Направление: {direction_name[:80]}...")
+    print(f"   ФИО: {full_name}")
+
+    # ═══ 2. IncomingDirection (get or create) ═══
+    direction = get_or_create(
+        session, IncomingDirection,
+        name=direction_name
+    )
+
+    # ═══ 3. ExcelDataFile ═══
+    if code_file is None:
+        code_file = abs(hash(filepath + filename)) % (10 ** 9)
+
+    existing_file = session.query(ExcelDataFile).filter_by(
+        code_file=code_file
+    ).first()
+
+    if existing_file:
+        print(f"   ⚠️ Файл уже загружен (code_file={code_file}), пропускаем")
+        return existing_file
+
+    excel_file = ExcelDataFile(
+        name=filename,
+        full_name=full_name,
+        code_file=code_file,
+        incoming_direction_id=direction.id,
+    )
+    session.add(excel_file)
+    session.flush()
+
+    # ═══ 4. Парсим Переаттестация ═══
+    rows_data = parse_reattest_sheet(filepath)
+    print(f"   Строк в таблице: {len(rows_data)}")
+
+    # ═══ 5. Сохраняем каждую строку ═══
+    for row_data in rows_data:
+        naimenovanie = row_data.get('Наименование')
+        if not naimenovanie:
+            continue
+
+        # StudyProgram
+        program = get_or_create(
+            session, StudyProgram,
+            name=str(naimenovanie).strip()
+        )
+
+        # FormatRetests (Переаттестовано(частично) и т.д.)
+        format_retests = None
+        fr_val = row_data.get('Зачет результатов обучения')
+        if fr_val:
+            format_retests = get_or_create(
+                session, FormatRetests,
+                format_name=str(fr_val).strip()
+            )
+
+        # FormatControl NORMA (Экзамен / Зачет / Зачет с оценкой)
+        fc_norma = None
+        fc_val = row_data.get('Форма пром. атт.')
+        if fc_val:
+            fc_norma = get_or_create(
+                session, FormatControl,
+                format_name=str(fc_val).strip()
+            )
+
+        # Часы
+        hours_normal = row_data.get('По плану__Часов')
+        hours_fact = row_data.get('Изучено и зачтено__Часов')
+
+        control = ControlTable(
+            incoming_direction_id=direction.id,
+            study_program_id=program.id,
+            format_control_norma_id=fc_norma.id if fc_norma else None,
+            format_control_fact_id=None,  # заполнить при необходимости
+            format_retests_id=format_retests.id if format_retests else None,
+            hours_normal=str(int(hours_normal)) if hours_normal else None,
+            hours_fact=str(int(hours_fact)) if hours_fact else None,
+        )
+        session.add(control)
+
+    session.commit()
+    print(f"   ✅ Сохранено успешно\n")
+
+    return excel_file
+
+
+# ══════════════════════════════════════════════
+#  ОБРАБОТКА ВСЕХ ФАЙЛОВ В ПАПКЕ
+# ══════════════════════════════════════════════
+
+def process_all_files(directory: str, session: Session):
+    """Обработать все .xlsx файлы в папке"""
+    files = sorted([
+        f for f in os.listdir(directory)
+        if f.endswith(('.xlsx', '.xls')) and not f.startswith('~$')
+    ])
+
+    print(f"{'=' * 60}")
+    print(f"Найдено файлов: {len(files)}")
+    print(f"{'=' * 60}\n")
+
+    success = 0
+    errors = []
+
+    for filename in files:
+        filepath = os.path.join(directory, filename)
         try:
-            for row in sheet.iter_rows(min_row=6):
-                name_cell = row[headers.get('name', 1) - 1] if headers.get('name') else row[1]
-                hours_fact_cell = row[headers.get('hours_fact', 6) - 1] if headers.get('hours_fact') else row[6]
-                format_retests_cell = row[headers.get('format_retests', 8) - 1] if headers.get('format_retests') else row[8]
-                
-                name = name_cell.value if name_cell.value else None
-                hours_fact = hours_fact_cell.value if hours_fact_cell.value else None
-                format_retests_name = format_retests_cell.value if format_retests_cell.value else None
-                
-                if not name or str(name) in ["Наименование", "Индекс", "-"]:
-                    continue
-                
-                # Находим предмет
-                cleaned_name = self._clean_text(str(name))
-                study_program = session.execute(
-                    select(StudyProgram).where(StudyProgram.name == cleaned_name)
-                ).scalar_one_or_none()
-                
-                if not study_program:
-                    continue
-                
-                # Находим формат переаттестации
-                format_retests = None
-                if format_retests_name and str(format_retests_name) not in ["-", "None", ""]:
-                    cleaned_format = self._clean_text(str(format_retests_name))
-                    format_retests = session.execute(
-                        select(FormatRetests).where(FormatRetests.format_name == cleaned_format)
-                    ).scalar_one_or_none()
-                
-                # Обновляем или создаем запись в ControlTable
-                control_table = session.execute(
-                    select(ControlTable).where(
-                        ControlTable.specialization_id == specialization['id'],
-                        ControlTable.study_program_id == study_program.id
-                    )
-                ).scalar_one_or_none()
-                
-                if control_table:
-                    # Обновляем существующую запись
-                    updated = False
-                    if hours_fact and not control_table.hours_fact:
-                        control_table.hours_fact = str(hours_fact)
-                        updated = True
-                    if format_retests and not control_table.format_retests_id:
-                        control_table.format_retests_id = format_retests.id
-                        updated = True
-                    
-                    if updated:
-                        updated_count += 1
-                else:
-                    # Создаем новую запись
-                    control_table = ControlTable(
-                        specialization_id=specialization['id'],
-                        study_program_id=study_program.id,
-                        hours_fact=str(hours_fact) if hours_fact else None,
-                        format_retests_id=format_retests.id if format_retests else None
-                    )
-                    session.add(control_table)
-                    updated_count += 1
-            
-            if updated_count > 0:
-                session.commit()
-        finally:
-            session.close()
-        
-        logger.info(f"Обновлено/создано записей из переаттестации: {updated_count}")
+            save_excel_to_db(filepath, session)
+            success += 1
+        except Exception as e:
+            print(f"   ❌ ОШИБКА: {e}\n")
+            errors.append((filename, str(e)))
+            session.rollback()
+
+    # ── Итоги ──
+    print(f"\n{'=' * 60}")
+    print(f"Успешно: {success}/{len(files)}")
+    if errors:
+        print(f"Ошибки:")
+        for fname, err in errors:
+            print(f"  - {fname}: {err}")
+    print(f"{'=' * 60}")
+
+
+# ══════════════════════════════════════════════
+#  ОТЛАДКА: посмотреть содержимое листа
+# ══════════════════════════════════════════════
+
+def debug_sheet(filepath: str, sheet_name: str = 'Титул'):
+    """
+    Вывести все непустые ячейки листа.
+    Помогает найти где лежит ФИО и направление.
+    """
+    wb = load_workbook(filepath, data_only=True)
+
+    # Найти лист
+    target = None
+    for name in wb.sheetnames:
+        if sheet_name.lower() in name.lower():
+            target = name
+            break
+
+    if not target:
+        print(f"Лист '{sheet_name}' не найден. Доступные: {wb.sheetnames}")
+        return
+
+    ws = wb[target]
+    print(f"\n{'=' * 70}")
+    print(f"ЛИСТ: {target}  |  ФАЙЛ: {os.path.basename(filepath)}")
+    print(f"{'=' * 70}")
+
+    for row in ws.iter_rows():
+        for cell in row:
+            if cell.value is not None:
+                val_preview = str(cell.value).replace('\n', '\\n')[:100]
+                print(f"  [{cell.row:3d}, {cell.column:2d}] "
+                      f"{cell.coordinate:6s}: {val_preview}")
+
+    wb.close()
+
+
+# ══════════════════════════════════════════════
+#  ЗАПУСК
+# ══════════════════════════════════════════════
+
+if __name__ == '__main__':
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from models import Base
     
-    def parse_all(self) -> Dict[str, Any]:
-        """Основной метод парсинга"""
-        logger.info(f"Начинаем парсинг файла: {self.file_path}")
-        
-        result = {
-            'specialization': None,
-            'direction': None,
-            'study_programs': 0,
-            'format_controls': 0,
-            'format_retests': 0,
-            'control_tables': 0
-        }
-        
-        # 1. Парсим титульную страницу
-        specialization, direction = self.parse_title_page()
-        if not specialization:
-            logger.error("Не удалось получить специализацию, прерываем парсинг")
-            return result
-        
-        result['specialization'] = specialization
-        result['direction'] = direction
-        
-        # 2. Парсим страницу Переаттестация для справочников
-        study_programs, format_controls, format_retests = self.parse_pereattestatsiya_references()
-        result['study_programs'] = len(study_programs)
-        result['format_controls'] = len(format_controls)
-        result['format_retests'] = len(format_retests)
-        
-        # 3. Парсим страницу План для ControlTable
-        control_tables = self.parse_plan_page(specialization)
-        result['control_tables'] = len(control_tables)
-        
-        # 4. Парсим страницу Переаттестация для обновления ControlTable
-        self.parse_retests_page_for_control(specialization)
-        
-        logger.info(f"Парсинг завершен успешно! Результаты: {result}")
-        return result
+    engine = create_engine('sqlite:///dbname.db')
+    SessionLocal = sessionmaker(bind=engine)
+    Base.metadata.create_all(engine)
+    # ── Отладка: посмотреть что в файле ──
+    # debug_sheet('path/to/file.xlsx', 'Титул')
+    # debug_sheet('path/to/file.xlsx', 'Переаттестация')
 
+    # ── Один файл ──
+    # with SessionLocal() as session:
+    #     save_excel_to_db('path/to/file.xlsx', session)
 
-def parse_xlsx_file(file_path: str, db_url: str) -> Dict[str, Any]:
-    """Функция для вызова из API"""
-    parser = XLSXParser(file_path, db_url)
-    return parser.parse_all()
+    # ── Все файлы в папке ──
+    with SessionLocal() as session:
+        process_all_files('D:/Develop/python/ocr-diploma-sheduler/services/xlsx_processor/src/inp/', session)
