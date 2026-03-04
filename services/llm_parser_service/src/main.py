@@ -241,13 +241,6 @@ class DiplomaParserService:
     # ──────────────────────────────────────────────
 
     def process_file(self, filename: str) -> bool:
-        """
-        Обрабатывает один JSON файл из results.
-        
-        filename: '0001.json'
-        
-        Возвращает True если успешно записано в БД.
-        """
         prefix = self.get_prefix_from_filename(filename)
 
         logger.info("=" * 60)
@@ -259,8 +252,10 @@ class DiplomaParserService:
             logger.error(f"Failed to download/parse: {filename}")
             return False
 
+        # prefix берём прямо из JSON (или из имени файла как фоллбэк)
+        file_code = data.get("prefix", prefix)
         source_image = data.get("source_image", f"{prefix}.jpg")
-        logger.info(f"Source image: {source_image}")
+        logger.info(f"Source image: {source_image}, file_code: {file_code}")
 
         # 2. Извлекаем OCR текст
         ocr_text = self.get_ocr_text(data)
@@ -274,20 +269,22 @@ class DiplomaParserService:
             return False
 
         logger.info(f"OCR text length: {len(ocr_text)} chars")
-        logger.info(f"OCR text preview: {ocr_text[:200]}...")
 
-        # 3. Парсим через LLM
+        # 3. Парсим через LLM (file_code НЕ отдаём в LLM)
         parser = LLMParser(model)
         parsed = parser.parse_image_text(ocr_text)
 
         if parsed is None:
             empty_parsed = ParsedStudent()
-            empty_parsed.errors.append("LLM вернул None")
+            empty_parsed.errors.append("LLM вернул None (критическая ошибка)")
             self.move_to_errors(
                 filename, data, empty_parsed,
                 "LLM не смог распарсить текст"
             )
             return False
+
+        if parsed.errors:
+            logger.warning(f"Parse errors for {filename}: {parsed.errors}")
 
         logger.info(f"Parsed data:")
         logger.info(f"  FIO:            {parsed.full_name}")
@@ -295,6 +292,7 @@ class DiplomaParserService:
         logger.info(f"  University:     {parsed.university}")
         logger.info(f"  Specialization: {parsed.specialization}")
         logger.info(f"  Code:           {parsed.code}")
+        logger.info(f"  Valid:          {parsed.is_valid}")
 
         # 4. Проверяем валидность
         if not parsed.is_valid:
@@ -309,7 +307,7 @@ class DiplomaParserService:
             )
             return False
 
-        # 5. Записываем в БД
+        # 5. Записываем в БД (file_code берём из JSON, а не из LLM)
         session = get_session()
         try:
             db_result = save_diploma_data(
@@ -319,25 +317,35 @@ class DiplomaParserService:
                 university_name=parsed.university,
                 specialization_name=parsed.specialization,
                 specialization_code=parsed.code or "",
-                file_code=prefix,
+                file_code=file_code,
                 file_name=source_image
             )
             session.commit()
 
-            logger.info(
-                f"✅ Saved to DB: "
-                f"student_id={db_result['student'].id}, "
-                f"spec_id={db_result['specialization'].id}, "
-                f"file_code={prefix}"
-            )
+            is_new = db_result["is_new_student"]
+            student = db_result["student"]
 
-            # 6. Удаляем из results
+            if is_new:
+                logger.info(
+                    f"✅ NEW student saved to DB: "
+                    f"student_id={student.id}, "
+                    f"file_code={file_code}"
+                )
+            else:
+                logger.info(
+                    f"⚠️ Student already exists: "
+                    f"student_id={student.id}, "
+                    f"file_code={student.file_code} — skipped creation"
+                )
+
+            # 6. Удаляем из results (в любом случае — и новый, и дубликат)
             self.delete_from_results(filename)
             return True
 
         except Exception as e:
             session.rollback()
             logger.error(f"Database error: {e}")
+            import traceback
             logger.error(traceback.format_exc())
 
             parsed.errors.append(f"Ошибка записи в БД: {str(e)}")
