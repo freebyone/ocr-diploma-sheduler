@@ -21,10 +21,6 @@ def get_direction_by_name(session: Session, name: str) -> Optional[Direction]:
     return session.execute(stmt).scalar_one_or_none()
 
 
-def get_direction_by_id(session: Session, direction_id: int) -> Optional[Direction]:
-    return session.get(Direction, direction_id)
-
-
 def get_or_create_direction(session: Session, name: str) -> Direction:
     direction = get_direction_by_name(session, name)
     if direction:
@@ -43,24 +39,11 @@ def get_all_directions(session: Session) -> List[Direction]:
     return list(session.execute(stmt).scalars().all())
 
 
-def delete_direction(session: Session, direction_id: int) -> bool:
-    direction = session.get(Direction, direction_id)
-    if direction:
-        session.delete(direction)
-        session.flush()
-        return True
-    return False
-
-
 # ==================== University ====================
 
 def get_university_by_name(session: Session, name: str) -> Optional[University]:
     stmt = select(University).where(University.name == name)
     return session.execute(stmt).scalar_one_or_none()
-
-
-def get_university_by_id(session: Session, university_id: int) -> Optional[University]:
-    return session.get(University, university_id)
 
 
 def get_or_create_university(session: Session, name: str) -> University:
@@ -81,29 +64,7 @@ def get_all_universities(session: Session) -> List[University]:
     return list(session.execute(stmt).scalars().all())
 
 
-def delete_university(session: Session, university_id: int) -> bool:
-    university = session.get(University, university_id)
-    if university:
-        session.delete(university)
-        session.flush()
-        return True
-    return False
-
-
 # ==================== Specialization ====================
-
-def get_specialization_by_name(
-    session: Session, name: str
-) -> Optional[Specialization]:
-    stmt = select(Specialization).where(Specialization.name == name)
-    return session.execute(stmt).scalar_one_or_none()
-
-
-def get_specialization_by_id(
-    session: Session, spec_id: int
-) -> Optional[Specialization]:
-    return session.get(Specialization, spec_id)
-
 
 def get_specialization_full(
     session: Session, name: str, direction_id: int, university_id: int
@@ -117,7 +78,8 @@ def get_specialization_full(
 
 
 def get_or_create_specialization(
-    session: Session, name: str, direction_id: int, university_id: int, specialization_code: str
+    session: Session, name: str, direction_id: int,
+    university_id: int, specialization_code: str
 ) -> Specialization:
     spec = get_specialization_full(session, name, direction_id, university_id)
     if spec:
@@ -128,7 +90,7 @@ def get_or_create_specialization(
         name=name,
         direction_id=direction_id,
         university_id=university_id,
-        code = specialization_code
+        code=specialization_code
     )
     session.add(spec)
     session.flush()
@@ -143,18 +105,18 @@ def get_all_specializations(session: Session) -> List[Specialization]:
 
 # ==================== Student ====================
 
-def get_student_by_name(session: Session, full_name: str) -> Optional[Student]:
-    stmt = select(Student).where(Student.full_name == full_name)
+def get_student_by_file_code(
+    session: Session, file_code: str
+) -> Optional[Student]:
+    """Ищет студента по file_code (префиксу из имени файла)."""
+    stmt = select(Student).where(Student.file_code == file_code)
     return session.execute(stmt).scalar_one_or_none()
-
-
-def get_student_by_id(session: Session, student_id: int) -> Optional[Student]:
-    return session.get(Student, student_id)
 
 
 def get_student_by_name_and_spec(
     session: Session, full_name: str, specialization_id: int
 ) -> Optional[Student]:
+    """Ищет студента по ФИО + специализации."""
     stmt = select(Student).where(
         Student.full_name == full_name,
         Student.specialization_id == specialization_id
@@ -162,19 +124,41 @@ def get_student_by_name_and_spec(
     return session.execute(stmt).scalar_one_or_none()
 
 
-def get_or_create_student(
-    session: Session, full_name: str, specialization_id: int
-) -> Student:
-    student = get_student_by_name_and_spec(
+def student_exists(
+    session: Session, full_name: str, specialization_id: int, file_code: str
+) -> Optional[Student]:
+    """
+    Проверяет существует ли студент по любому из критериев:
+    1. По file_code (уникальный префикс файла)
+    2. По ФИО + специализации
+    
+    Возвращает найденного студента или None.
+    """
+    # Сначала по file_code — это самый точный критерий
+    existing = get_student_by_file_code(session, file_code)
+    if existing:
+        return existing
+
+    # Затем по ФИО + специализации
+    existing = get_student_by_name_and_spec(
         session, full_name, specialization_id
     )
-    if student:
-        logger.info(f"Found existing student: {student}")
-        return student
+    if existing:
+        return existing
 
+    return None
+
+
+def create_student(
+    session: Session, full_name: str, specialization_id: int,
+    file_code: str, file_name: str = None
+) -> Student:
+    """Создаёт нового студента."""
     student = Student(
         full_name=full_name,
-        specialization_id=specialization_id
+        specialization_id=specialization_id,
+        file_code=file_code,
+        file_name=file_name
     )
     session.add(student)
     session.flush()
@@ -185,24 +169,6 @@ def get_or_create_student(
 def get_all_students(session: Session) -> List[Student]:
     stmt = select(Student).order_by(Student.id)
     return list(session.execute(stmt).scalars().all())
-
-
-def get_students_by_specialization(
-    session: Session, specialization_id: int
-) -> List[Student]:
-    stmt = select(Student).where(
-        Student.specialization_id == specialization_id
-    ).order_by(Student.id)
-    return list(session.execute(stmt).scalars().all())
-
-
-def delete_student(session: Session, student_id: int) -> bool:
-    student = session.get(Student, student_id)
-    if student:
-        session.delete(student)
-        session.flush()
-        return True
-    return False
 
 
 # ==================== FormatControl ====================
@@ -337,11 +303,19 @@ def save_diploma_data(
     direction_name: str,
     university_name: str,
     specialization_name: str,
-    specialization_code: str
+    specialization_code: str,
+    file_code: str,
+    file_name: str = None
 ) -> dict:
     """
     Сохраняет данные диплома в БД.
-    Создаёт или находит все связанные сущности.
+    
+    file_code берётся из prefix в JSON (например '0001')
+    file_name — имя исходного изображения (например '0001.jpg')
+    
+    Возвращает dict с ключами:
+        - direction, university, specialization, student
+        - is_new_student: True если создан, False если уже был
     """
     logger.info("=" * 50)
     logger.info("Saving diploma data to database")
@@ -349,9 +323,11 @@ def save_diploma_data(
     logger.info(f"  Direction:      {direction_name}")
     logger.info(f"  University:     {university_name}")
     logger.info(f"  Specialization: {specialization_name}")
-    logger.info(f"  Specialization CODE: {specialization_code}")
+    logger.info(f"  Spec CODE:      {specialization_code}")
+    logger.info(f"  File CODE:      {file_code}")
+    logger.info(f"  File NAME:      {file_name}")
 
-    # 1. Направление
+    # 1. Направление (квалификация)
     direction = get_or_create_direction(session, direction_name)
 
     # 2. Учебное заведение
@@ -359,12 +335,36 @@ def save_diploma_data(
 
     # 3. Специализация
     specialization = get_or_create_specialization(
-        session, specialization_name, direction.id, university.id, specialization_code
+        session, specialization_name, direction.id,
+        university.id, specialization_code
     )
 
-    # 4. Студент
-    student = get_or_create_student(
-        session, full_name, specialization.id
+    # 4. Проверяем — есть ли уже такой студент?
+    existing_student = student_exists(
+        session, full_name, specialization.id, file_code
+    )
+
+    if existing_student:
+        logger.info(
+            f"⚠️ Student already exists: id={existing_student.id}, "
+            f"name='{existing_student.full_name}', "
+            f"file_code='{existing_student.file_code}'"
+        )
+        logger.info("Skipping student creation (duplicate)")
+
+        return {
+            "direction": direction,
+            "university": university,
+            "specialization": specialization,
+            "student": existing_student,
+            "is_new_student": False
+        }
+
+    # 5. Создаём нового студента
+    student = create_student(
+        session, full_name, specialization.id,
+        file_code=file_code,
+        file_name=file_name
     )
 
     logger.info("Diploma data saved successfully")
@@ -377,5 +377,6 @@ def save_diploma_data(
         "direction": direction,
         "university": university,
         "specialization": specialization,
-        "student": student
+        "student": student,
+        "is_new_student": True
     }

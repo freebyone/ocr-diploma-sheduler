@@ -38,7 +38,7 @@ def wait_for_db(max_retries: int = 30, delay: int = 5):
 
 
 def init_db():
-    """Создаёт таблицы если их нет (на случай если init.sql не отработал)"""
+    """Создаёт таблицы если их нет"""
     try:
         Base.metadata.create_all(bind=engine)
         logger.info("Database tables verified/created successfully")
