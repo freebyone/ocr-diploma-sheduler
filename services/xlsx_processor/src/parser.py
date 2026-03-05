@@ -300,15 +300,19 @@ def save_excel_to_db(filepath: str, session: Session):
 
     
     # ═══ 6. ExcelDataFile ═══
-    excel_file = ExcelDataFile(
-        name=filename,
-        full_name=full_name,
-        code_file=code_file,
-        incoming_direction_id=direction.id,
-    )
-    session.add(excel_file)
-    session.flush()
-    print(f"   ExcelDataFile создан (id={excel_file.id})")
+    excel_file = session.query(ExcelDataFile).filter_by(
+        code_file=code_file
+    ).first()
+    if not excel_file:
+        excel_file = ExcelDataFile(
+            name=filename,
+            full_name=full_name,
+            code_file=code_file,
+            incoming_direction_id=direction.id,
+        )
+        session.add(excel_file)
+        session.flush()
+        print(f"   ExcelDataFile создан (id={excel_file.id})")
 
     # ═══ 7. Парсим Переаттестация ═══
     rows_data = parse_reattest_sheet(filepath)
