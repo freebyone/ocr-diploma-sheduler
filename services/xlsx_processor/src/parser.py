@@ -283,26 +283,27 @@ def save_excel_to_db(filepath: str, session: Session):
             print(f"   → Обновлён code_file и direction")
     else:
         # Создаём нового студента
-        default_spec = get_or_create(
-            session, Specialization,
-            name="Не определена"
-        )
+        # default_spec = get_or_create(
+        #     session, Specialization,
+        #     name="Не определена"
+        # )
         student = Student(
             full_name=full_name,
             file_code=code_file,
             file_name=filename,
-            specialization_id=default_spec.id,
+            specialization_id=None,
             incoming_direction_id=direction.id,
         )
         session.add(student)
         session.flush()
         print(f"   Студент создан (id={student.id})")
 
+    
     # ═══ 6. ExcelDataFile ═══
     excel_file = ExcelDataFile(
         name=filename,
         full_name=full_name,
-        code_file=int(code_file),
+        code_file=code_file,
         incoming_direction_id=direction.id,
     )
     session.add(excel_file)
