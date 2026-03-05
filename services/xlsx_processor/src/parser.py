@@ -299,6 +299,7 @@ def save_excel_to_db(filepath: str, session: Session):
         print(f"   Студент создан (id={student.id})")
 
     
+    
     # ═══ 6. ExcelDataFile ═══
     excel_file = session.query(ExcelDataFile).filter_by(
         code_file=code_file
