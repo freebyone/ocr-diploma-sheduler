@@ -82,12 +82,6 @@ class IncomingDirection(Base):
     name: Mapped[str] = mapped_column(
         String(300), nullable=False, comment='Название направления из эксель с титула'
     )
-    # incoming_direction_student: Mapped["IncomingDirectionStudent"] = relationship(
-    #     back_populates="incoming_direction"
-    # )
-    # incoming_direction_students: Mapped[List["IncomingDirectionStudent"]] = relationship(
-    #     back_populates="direction"
-    # )
     incoming_direction_files: Mapped[List["ExcelDataFile"]] = relationship(
         back_populates="excel_rel"
     )
@@ -132,7 +126,7 @@ class Student(Base):
         comment='ID Специализации из пдф'
     )
     incoming_direction_id: Mapped[int] = mapped_column(
-        ForeignKey('incoming_direction.id'), nullable=False,
+        ForeignKey('incoming_direction.id'), nullable=True,
         comment='ID напраления из пдф'
     )
 

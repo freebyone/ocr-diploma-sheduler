@@ -7,7 +7,8 @@ from typing import Optional, List, Dict
 
 from models import (
     IncomingDirection, ExcelDataFile, Student,
-    FormatControl, FormatRetests, StudyProgram, ControlTable
+    FormatControl, FormatRetests, StudyProgram, ControlTable,
+    Specialization, Base
 )
 
 
@@ -15,14 +16,28 @@ from models import (
 #  УТИЛИТЫ
 # ══════════════════════════════════════════════
 
-def get_or_create(session: Session, model, **kwargs):
+def get_or_create(session: Session, model, defaults: dict = None, **kwargs):
     """Найти запись или создать новую"""
     instance = session.query(model).filter_by(**kwargs).first()
     if not instance:
-        instance = model(**kwargs)
+        params = {**kwargs}
+        if defaults:
+            params.update(defaults)
+        instance = model(**params)
         session.add(instance)
-        session.flush()  # чтобы получить id
+        session.flush()
     return instance
+
+
+def parse_code_from_filename(filename: str) -> str:
+    """
+    '0001_Абдулаев_Магомедали_..._OZ.xlsx' → '0001'
+    """
+    basename = os.path.splitext(filename)[0]
+    match = re.match(r'^(\d+)', basename)
+    if match:
+        return match.group(1)
+    raise ValueError(f"Не удалось извлечь code_file из имени файла: {filename}")
 
 
 # ══════════════════════════════════════════════
@@ -30,20 +45,13 @@ def get_or_create(session: Session, model, **kwargs):
 # ══════════════════════════════════════════════
 
 def parse_title_sheet(filepath: str) -> dict:
-    """
-    Извлекает с листа Титул:
-    - direction_name: направление подготовки
-    - full_name: ФИО студента
-    """
     result = {
         'direction_name': None,
         'full_name': None,
     }
 
-    # ── Способ 1: через openpyxl (надёжнее для merged cells) ──
     wb = load_workbook(filepath, data_only=True)
 
-    # Определяем имя листа (может быть разное написание)
     title_sheet_name = None
     for name in wb.sheetnames:
         if 'титул' in name.lower():
@@ -51,72 +59,63 @@ def parse_title_sheet(filepath: str) -> dict:
             break
 
     if not title_sheet_name:
-        raise ValueError(f"Лист 'Титул' не найден. Листы: {wb.sheetnames}")
+        title_sheet_name = wb.sheetnames[0]
+        print(f"   ⚠️ Лист 'Титул' не найден, используем '{title_sheet_name}'")
 
     ws = wb[title_sheet_name]
 
+    all_values = []
     for row in ws.iter_rows():
         for cell in row:
             val = cell.value
-            if not val or not isinstance(val, str):
-                continue
+            if val and isinstance(val, str):
+                all_values.append((cell.row, cell.column, val.strip()))
 
-            val_clean = val.strip()
+    # ── Паттерны для ФИО ──
+    fio_patterns = [
+        # "индивидуальный план Абдулаев Магомедали Абдурахманович"
+        # (с отчеством)
+        r'[Ии]ндивидуальн\w+\s+план\s+'
+        r'([А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+)',
 
-            # ── Направление подготовки ──
-            if 'Направление подготовки' in val_clean:
-                result['direction_name'] = (
-                    re.sub(r'\s+', ' ',
-                           val_clean
-                           .replace('\n', ' ')
-                           .replace('_x000D_', '')
-                           .replace('\r', ' '))
-                    .strip()
-                )
+        # "индивидуальный план Абдулаев Магомедали"
+        # (без отчества)
+        r'[Ии]ндивидуальн\w+\s+план\s+'
+        r'([А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+)',
 
-            # ── ФИО студента ──
-            # Ищем по ключевым словам
-            fio_patterns = [
-                r'(?:Студент|Обучающ\w+|ФИО)\s*:?\s*'
-                r'([А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+)',
-                r'(?:Студент|Обучающ\w+)\s*:?\s*(.+)',
-            ]
+        # "Студент: Фамилия Имя Отчество"
+        r'(?:Студент|Обучающ\w+|ФИО)\s*:?\s*'
+        r'([А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+)',
+
+        # "Студент: Фамилия Имя"
+        r'(?:Студент|Обучающ\w+|ФИО)\s*:?\s*'
+        r'([А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+)',
+    ]
+
+    for row_num, col_num, val_clean in all_values:
+        # ── Направление ──
+        if 'Направление подготовки' in val_clean and not result['direction_name']:
+            result['direction_name'] = (
+                re.sub(
+                    r'\s+', ' ',
+                    val_clean
+                    .replace('\n', ' ')
+                    .replace('_x000D_', '')
+                    .replace('\r', ' ')
+                ).strip()
+            )
+
+        # ── ФИО ──
+        if not result['full_name']:
             for pattern in fio_patterns:
                 m = re.search(pattern, val_clean)
-                if m and not result['full_name']:
+                if m:
                     candidate = m.group(1).strip()
-                    if len(candidate) > 5:  # не инициалы
+                    if len(candidate) > 3:
                         result['full_name'] = candidate
+                        break
 
     wb.close()
-
-    # ── Способ 2 (fallback): через pandas ──
-    if not result['direction_name'] or not result['full_name']:
-        df = pd.read_excel(
-            filepath,
-            sheet_name=title_sheet_name,
-            header=None,
-            engine='openpyxl'
-        )
-        for _, row in df.iterrows():
-            for val in row:
-                if pd.isna(val):
-                    continue
-                val_str = str(val).strip()
-
-                if not result['direction_name'] and 'Направление подготовки' in val_str:
-                    result['direction_name'] = re.sub(
-                        r'\s+', ' ',
-                        val_str.replace('\n', ' ')
-                    ).strip()
-
-                if not result['full_name']:
-                    for pat in fio_patterns:
-                        m = re.search(pat, val_str)
-                        if m:
-                            result['full_name'] = m.group(1).strip()
-                            break
-
     return result
 
 
@@ -125,11 +124,7 @@ def parse_title_sheet(filepath: str) -> dict:
 # ══════════════════════════════════════════════
 
 def parse_reattest_sheet(filepath: str) -> List[Dict]:
-    """
-    Парсит таблицу с листа Переаттестация.
-    Возвращает список словарей — каждый словарь = одна строка таблицы.
-    """
-    # ── Ищем лист ──
+    """Парсит таблицу с листа Переаттестация"""
     wb_temp = load_workbook(filepath, read_only=True)
     sheet_name = None
     for name in wb_temp.sheetnames:
@@ -143,9 +138,8 @@ def parse_reattest_sheet(filepath: str) -> List[Dict]:
 
     df = pd.read_excel(filepath, sheet_name=sheet_name, engine='openpyxl')
 
-    # ── Строим маппинг колонок ──
     top_headers = df.columns.tolist()
-    sub_headers = df.iloc[1].tolist()  # строка с реальными заголовками
+    sub_headers = df.iloc[1].tolist()
 
     column_structure = []
     current_group = None
@@ -154,20 +148,15 @@ def parse_reattest_sheet(filepath: str) -> List[Dict]:
         top_str = str(top)
         sub_str = str(sub) if pd.notna(sub) else None
 
-        # Определяем группу
         if top_str.startswith('Unnamed'):
-            # Часть объединённой ячейки → та же группа
             group = current_group
         elif top_str == '-' or top_str.startswith('-.'):
-            # Одиночная колонка
             group = None
             current_group = None
         else:
-            # Новая группа (По плану, Изучено и зачтено, ...)
             group = top_str
             current_group = top_str
 
-        # Формируем плоский ключ
         if group and sub_str:
             flat_key = f"{group}__{sub_str}"
         elif sub_str:
@@ -182,26 +171,18 @@ def parse_reattest_sheet(filepath: str) -> List[Dict]:
             "flat_key": flat_key,
         })
 
-    # ── Извлекаем данные (пропускаем строки заголовков) ──
     data_df = df.iloc[2:].copy().reset_index(drop=True)
 
-    # Убираем строки "Итого"
     mask_itogo = data_df.iloc[:, 1].astype(str).str.contains('Итого', na=False)
     data_df = data_df[~mask_itogo]
-
-    # Убираем полностью пустые строки
     data_df = data_df.dropna(how='all')
 
-    # Forward-fill Индекс и Наименование
-    # (для предметов на несколько семестров, например Б1.В.01)
-    data_df.iloc[:, 0] = data_df.iloc[:, 0].ffill()  # Индекс
-    data_df.iloc[:, 1] = data_df.iloc[:, 1].ffill()  # Наименование
+    data_df.iloc[:, 0] = data_df.iloc[:, 0].ffill()
+    data_df.iloc[:, 1] = data_df.iloc[:, 1].ffill()
 
-    # Убираем строки где и после ffill нет Наименования
     data_df = data_df[data_df.iloc[:, 1].notna()]
     data_df = data_df.reset_index(drop=True)
 
-    # ── Формируем список словарей ──
     rows = []
     for _, row in data_df.iterrows():
         row_dict = {}
@@ -221,80 +202,137 @@ def parse_reattest_sheet(filepath: str) -> List[Dict]:
 #  СОХРАНЕНИЕ В БД
 # ══════════════════════════════════════════════
 
-def save_excel_to_db(
-    filepath: str,
-    session: Session,
-    code_file: int = None,
-    manual_fio: str = None,
-):
+def save_excel_to_db(filepath: str, session: Session):
     """
-    Обрабатывает один Excel файл и сохраняет в БД.
-
-    Args:
-        filepath: путь к .xlsx файлу
-        session: SQLAlchemy сессия
-        code_file: уникальный код файла (если None — генерируется из имени)
-        manual_fio: ФИО вручную (если автоопределение не работает)
+    Логика:
+    1. code_file — из имени файла
+    2. ФИО — ТОЛЬКО из листа Титул
+    3. Студент ищется по ФИО:
+       - найден + code_file совпадает → привязываем direction
+       - найден + code_file другой → обновляем
+       - не найден → создаём
+    4. Данные переаттестации → ControlTable
     """
     filename = os.path.basename(filepath)
 
-    # ═══ 1. Парсим Титул ═══
+    # ═══ 1. Код из имени файла ═══
+    code_file = parse_code_from_filename(filename)
+    print(f"📄 {filename}")
+    print(f"   Code: {code_file}")
+
+    # ═══ 2. Проверяем дубликат ═══
+    existing_file = session.query(ExcelDataFile).filter_by(
+        code_file=int(code_file)
+    ).first()
+    if existing_file:
+        print(f"   ⚠️ Файл уже загружен (code_file={code_file}), пропускаем\n")
+        return existing_file
+
+    # ═══ 3. Парсим Титул (ФИО только отсюда!) ═══
     title_data = parse_title_sheet(filepath)
 
     direction_name = title_data['direction_name']
-    full_name = manual_fio or title_data['full_name'] or filename
+    full_name = title_data['full_name']
 
     if not direction_name:
-        raise ValueError(f"Направление не найдено в файле {filename}")
+        raise ValueError(
+            f"Направление не найдено на листе Титул в файле {filename}"
+        )
 
-    print(f"📄 {filename}")
+    if not full_name:
+        raise ValueError(
+            f"ФИО не найдено на листе Титул в файле {filename}. "
+            f"Запустите debug_sheet('{filepath}', 'Титул') чтобы "
+            f"увидеть содержимое и поправить паттерн поиска."
+        )
+
     print(f"   Направление: {direction_name[:80]}...")
-    print(f"   ФИО: {full_name}")
+    print(f"   ФИО (из Титула): {full_name}")
 
-    # ═══ 2. IncomingDirection (get or create) ═══
+    # ═══ 4. IncomingDirection ═══
     direction = get_or_create(
         session, IncomingDirection,
         name=direction_name
     )
+    print(f"   Direction ID: {direction.id}")
 
-    # ═══ 3. ExcelDataFile ═══
-    if code_file is None:
-        code_file = abs(hash(filepath + filename)) % (10 ** 9)
-
-    existing_file = session.query(ExcelDataFile).filter_by(
-        code_file=code_file
+    # ═══ 5. Student ═══
+    student = session.query(Student).filter_by(
+        full_name=full_name
     ).first()
 
-    if existing_file:
-        print(f"   ⚠️ Файл уже загружен (code_file={code_file}), пропускаем")
-        return existing_file
+    if student:
+        if student.file_code == code_file:
+            # Тот же студент, тот же файл — обновляем direction
+            print(f"   Студент найден (id={student.id}), code_file совпадает")
+            if student.incoming_direction_id != direction.id:
+                student.incoming_direction_id = direction.id
+                print(f"   → Обновлён incoming_direction_id → {direction.id}")
+        else:
+            # Такое же ФИО но другой code_file — это ДРУГОЙ файл
+            # для того же студента или полный тёзка
+            print(
+                f"   Студент '{full_name}' найден (id={student.id}), "
+                f"но code_file отличается: БД='{student.file_code}', "
+                f"файл='{code_file}'"
+            )
+            # Обновляем
+            student.file_code = code_file
+            student.file_name = filename
+            student.incoming_direction_id = direction.id
+            print(f"   → Обновлён code_file и direction")
+    else:
+        # Создаём нового студента
+        default_spec = get_or_create(
+            session, Specialization,
+            name="Не определена"
+        )
+        student = Student(
+            full_name=full_name,
+            file_code=code_file,
+            file_name=filename,
+            specialization_id=default_spec.id,
+            incoming_direction_id=direction.id,
+        )
+        session.add(student)
+        session.flush()
+        print(f"   Студент создан (id={student.id})")
 
+    # ═══ 6. ExcelDataFile ═══
     excel_file = ExcelDataFile(
         name=filename,
         full_name=full_name,
-        code_file=code_file,
+        code_file=int(code_file),
         incoming_direction_id=direction.id,
     )
     session.add(excel_file)
     session.flush()
+    print(f"   ExcelDataFile создан (id={excel_file.id})")
 
-    # ═══ 4. Парсим Переаттестация ═══
+    # ═══ 7. Парсим Переаттестация ═══
     rows_data = parse_reattest_sheet(filepath)
     print(f"   Строк в таблице: {len(rows_data)}")
 
-    # ═══ 5. Сохраняем каждую строку ═══
+    # ═══ 8. ControlTable ═══
+    def safe_str(val):
+        if val is None:
+            return None
+        try:
+            return str(int(float(val)))
+        except (ValueError, TypeError):
+            return str(val)
+
+    created_count = 0
     for row_data in rows_data:
         naimenovanie = row_data.get('Наименование')
         if not naimenovanie:
             continue
 
-        # StudyProgram
         program = get_or_create(
             session, StudyProgram,
             name=str(naimenovanie).strip()
         )
 
-        # FormatRetests (Переаттестовано(частично) и т.д.)
         format_retests = None
         fr_val = row_data.get('Зачет результатов обучения')
         if fr_val:
@@ -303,16 +341,14 @@ def save_excel_to_db(
                 format_name=str(fr_val).strip()
             )
 
-        # FormatControl NORMA (Экзамен / Зачет / Зачет с оценкой)
         fc_norma = None
-        fc_val = row_data.get('Форма пром. атт.')
-        if fc_val:
+        fc_norma_val = row_data.get('Форма пром. атт.')
+        if fc_norma_val:
             fc_norma = get_or_create(
                 session, FormatControl,
-                format_name=str(fc_val).strip()
+                format_name=str(fc_norma_val).strip()
             )
 
-        # Часы
         hours_normal = row_data.get('По плану__Часов')
         hours_fact = row_data.get('Изучено и зачтено__Часов')
 
@@ -320,25 +356,24 @@ def save_excel_to_db(
             incoming_direction_id=direction.id,
             study_program_id=program.id,
             format_control_norma_id=fc_norma.id if fc_norma else None,
-            format_control_fact_id=None,  # заполнить при необходимости
+            format_control_fact_id=None,
             format_retests_id=format_retests.id if format_retests else None,
-            hours_normal=str(int(hours_normal)) if hours_normal else None,
-            hours_fact=str(int(hours_fact)) if hours_fact else None,
+            hours_normal=safe_str(hours_normal),
+            hours_fact=safe_str(hours_fact),
         )
         session.add(control)
+        created_count += 1
 
     session.commit()
-    print(f"   ✅ Сохранено успешно\n")
-
+    print(f"   ✅ Записано {created_count} строк в ControlTable\n")
     return excel_file
 
 
 # ══════════════════════════════════════════════
-#  ОБРАБОТКА ВСЕХ ФАЙЛОВ В ПАПКЕ
+#  ОБРАБОТКА ПАПКИ
 # ══════════════════════════════════════════════
 
 def process_all_files(directory: str, session: Session):
-    """Обработать все .xlsx файлы в папке"""
     files = sorted([
         f for f in os.listdir(directory)
         if f.endswith(('.xlsx', '.xls')) and not f.startswith('~$')
@@ -361,7 +396,6 @@ def process_all_files(directory: str, session: Session):
             errors.append((filename, str(e)))
             session.rollback()
 
-    # ── Итоги ──
     print(f"\n{'=' * 60}")
     print(f"Успешно: {success}/{len(files)}")
     if errors:
@@ -372,17 +406,13 @@ def process_all_files(directory: str, session: Session):
 
 
 # ══════════════════════════════════════════════
-#  ОТЛАДКА: посмотреть содержимое листа
+#  ОТЛАДКА
 # ══════════════════════════════════════════════
 
 def debug_sheet(filepath: str, sheet_name: str = 'Титул'):
-    """
-    Вывести все непустые ячейки листа.
-    Помогает найти где лежит ФИО и направление.
-    """
+    """Вывести все непустые ячейки — помогает найти где ФИО"""
     wb = load_workbook(filepath, data_only=True)
 
-    # Найти лист
     target = None
     for name in wb.sheetnames:
         if sheet_name.lower() in name.lower():
@@ -402,8 +432,10 @@ def debug_sheet(filepath: str, sheet_name: str = 'Титул'):
         for cell in row:
             if cell.value is not None:
                 val_preview = str(cell.value).replace('\n', '\\n')[:100]
-                print(f"  [{cell.row:3d}, {cell.column:2d}] "
-                      f"{cell.coordinate:6s}: {val_preview}")
+                print(
+                    f"  [{cell.row:3d}, {cell.column:2d}] "
+                    f"{cell.coordinate:6s}: {val_preview}"
+                )
 
     wb.close()
 
@@ -415,19 +447,12 @@ def debug_sheet(filepath: str, sheet_name: str = 'Титул'):
 if __name__ == '__main__':
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
-    from models import Base
-    
-    engine = create_engine('sqlite:///dbname.db')
-    SessionLocal = sessionmaker(bind=engine)
+
+    engine = create_engine('sqlite:///data.db')
     Base.metadata.create_all(engine)
-    # ── Отладка: посмотреть что в файле ──
-    # debug_sheet('path/to/file.xlsx', 'Титул')
-    # debug_sheet('path/to/file.xlsx', 'Переаттестация')
+    SessionLocal = sessionmaker(bind=engine)
 
-    # ── Один файл ──
-    # with SessionLocal() as session:
-    #     save_excel_to_db('path/to/file.xlsx', session)
+    # debug_sheet('./inp/0001_Абдулаев_Магомедали_Абдурахманович_Uch_plan_38_03_01_FiK_OZ.xlsx', 'Титул')
 
-    # ── Все файлы в папке ──
     with SessionLocal() as session:
-        process_all_files('D:/Develop/python/ocr-diploma-sheduler/services/xlsx_processor/src/inp/', session)
+        process_all_files('./inp/', session)
