@@ -1,7 +1,7 @@
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, Session
 from config import DATABASE_URL
-from models import Base
+from services.llm_parser_service.src.models_backup import Base
 import logging
 import time
 

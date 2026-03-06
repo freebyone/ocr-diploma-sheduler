@@ -123,9 +123,9 @@ services:
       echo 'MinIO init complete';
       "
     restart: "no"
-  xlsx-service:
-    build: ./services/xlsx_processor/
-    container_name: xlsx-service
+  xlsx-parser:
+    build: ./services/xlsx_parser/
+    container_name: xlsx-parser
     depends_on:
       postgres:
         condition: service_healthy
@@ -146,6 +146,29 @@ services:
     networks:
       - network
     restart: "no"
+
+  excel-processor:
+    build: ./services/excel_processor
+    container_name: excel-processor
+    depends_on:
+      minio-init:
+        condition: service_completed_successfully
+    environment:
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ocrminio
+      MINIO_SECRET_KEY: admin123456
+      MINIO_SECURE: "false"
+      MINIO_BUCKET: xlsx-documents
+    ports:
+      - "8003:8003"
+    networks:
+      - network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   kafka-ui:
     image: provectuslabs/kafka-ui:latest

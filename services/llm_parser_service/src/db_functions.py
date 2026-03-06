@@ -4,7 +4,7 @@ CRUD операции для всех сущностей БД.
 
 from sqlalchemy.orm import Session
 from sqlalchemy import select
-from models import (
+from services.llm_parser_service.src.models_backup import (
     Direction, University, Specialization, Student,
     FormatControl, FormatRetests, StudyProgram, ControlTable
 )
