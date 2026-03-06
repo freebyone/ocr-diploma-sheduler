@@ -147,8 +147,8 @@ services:
       - network
     restart: "no"
 
-  excel-processor:
-    build: ./services/excel_processor
+  xlsx-processor:
+    build: ./services/xlsx_processor
     container_name: excel-processor
     depends_on:
       minio-init:
