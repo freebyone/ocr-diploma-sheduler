@@ -1,12 +1,14 @@
 """
 CRUD операции для всех сущностей БД.
+Адаптировано под новую схему с IncomingDirection, ExcelDataFile.
 """
 
 from sqlalchemy.orm import Session
 from sqlalchemy import select
-from services.llm_parser_service.src.models_backup import (
+from models import (
     Direction, University, Specialization, Student,
-    FormatControl, FormatRetests, StudyProgram, ControlTable
+    FormatControl, FormatRetests, StudyProgram, ControlTable,
+    IncomingDirection, ExcelDataFile
 )
 from typing import Optional, List
 import logging
@@ -41,7 +43,9 @@ def get_all_directions(session: Session) -> List[Direction]:
 
 # ==================== University ====================
 
-def get_university_by_name(session: Session, name: str) -> Optional[University]:
+def get_university_by_name(
+    session: Session, name: str
+) -> Optional[University]:
     stmt = select(University).where(University.name == name)
     return session.execute(stmt).scalar_one_or_none()
 
@@ -103,6 +107,60 @@ def get_all_specializations(session: Session) -> List[Specialization]:
     return list(session.execute(stmt).scalars().all())
 
 
+# ==================== IncomingDirection ====================
+
+def get_incoming_direction_by_name(
+    session: Session, name: str
+) -> Optional[IncomingDirection]:
+    stmt = select(IncomingDirection).where(IncomingDirection.name == name)
+    return session.execute(stmt).scalar_one_or_none()
+
+
+def get_or_create_incoming_direction(
+    session: Session, name: str
+) -> IncomingDirection:
+    inc_dir = get_incoming_direction_by_name(session, name)
+    if inc_dir:
+        logger.info(f"Found existing incoming_direction: id={inc_dir.id}")
+        return inc_dir
+
+    inc_dir = IncomingDirection(name=name)
+    session.add(inc_dir)
+    session.flush()
+    logger.info(f"Created new incoming_direction: id={inc_dir.id}")
+    return inc_dir
+
+
+# ==================== ExcelDataFile ====================
+
+def get_excel_file_by_code(
+    session: Session, code_file: str
+) -> Optional[ExcelDataFile]:
+    stmt = select(ExcelDataFile).where(ExcelDataFile.code_file == code_file)
+    return session.execute(stmt).scalar_one_or_none()
+
+
+def get_or_create_excel_file(
+    session: Session, name: str, full_name: str,
+    code_file: str, incoming_direction_id: int
+) -> ExcelDataFile:
+    excel_file = get_excel_file_by_code(session, code_file)
+    if excel_file:
+        logger.info(f"Found existing excel_data_file: id={excel_file.id}")
+        return excel_file
+
+    excel_file = ExcelDataFile(
+        name=name,
+        full_name=full_name,
+        code_file=code_file,
+        incoming_direction_id=incoming_direction_id
+    )
+    session.add(excel_file)
+    session.flush()
+    logger.info(f"Created new excel_data_file: id={excel_file.id}")
+    return excel_file
+
+
 # ==================== Student ====================
 
 def get_student_by_file_code(
@@ -131,15 +189,13 @@ def student_exists(
     Проверяет существует ли студент по любому из критериев:
     1. По file_code (уникальный префикс файла)
     2. По ФИО + специализации
-    
+
     Возвращает найденного студента или None.
     """
-    # Сначала по file_code — это самый точный критерий
     existing = get_student_by_file_code(session, file_code)
     if existing:
         return existing
 
-    # Затем по ФИО + специализации
     existing = get_student_by_name_and_spec(
         session, full_name, specialization_id
     )
@@ -151,14 +207,16 @@ def student_exists(
 
 def create_student(
     session: Session, full_name: str, specialization_id: int,
-    file_code: str, file_name: str = None
+    file_code: str, file_name: str = None,
+    incoming_direction_id: int = None
 ) -> Student:
     """Создаёт нового студента."""
     student = Student(
         full_name=full_name,
         specialization_id=specialization_id,
         file_code=file_code,
-        file_name=file_name
+        file_name=file_name,
+        incoming_direction_id=incoming_direction_id
     )
     session.add(student)
     session.flush()
@@ -258,16 +316,16 @@ def get_all_study_programs(session: Session) -> List[StudyProgram]:
 
 def create_control_table_entry(
     session: Session,
-    specialization_id: int,
-    study_program_id: int,
-    format_control_norma_id: int,
-    format_control_fact_id: int,
-    format_retests_id: int,
-    hours_fact: str,
-    hours_normal: str
+    incoming_direction_id: int,
+    study_program_id: int = None,
+    format_control_norma_id: int = None,
+    format_control_fact_id: int = None,
+    format_retests_id: int = None,
+    hours_fact: str = None,
+    hours_normal: str = None
 ) -> ControlTable:
     entry = ControlTable(
-        specialization_id=specialization_id,
+        incoming_direction_id=incoming_direction_id,
         study_program_id=study_program_id,
         format_control_norma_id=format_control_norma_id,
         format_control_fact_id=format_control_fact_id,
@@ -281,11 +339,11 @@ def create_control_table_entry(
     return entry
 
 
-def get_control_table_by_spec(
-    session: Session, specialization_id: int
+def get_control_table_by_direction(
+    session: Session, incoming_direction_id: int
 ) -> List[ControlTable]:
     stmt = select(ControlTable).where(
-        ControlTable.specialization_id == specialization_id
+        ControlTable.incoming_direction_id == incoming_direction_id
     ).order_by(ControlTable.id)
     return list(session.execute(stmt).scalars().all())
 
@@ -309,10 +367,13 @@ def save_diploma_data(
 ) -> dict:
     """
     Сохраняет данные диплома в БД.
-    
+
     file_code берётся из prefix в JSON (например '0001')
     file_name — имя исходного изображения (например '0001.jpg')
-    
+
+    Студент привязывается к specialization (из PDF/OCR).
+    incoming_direction_id остаётся None — его заполнит Excel-сервис.
+
     Возвращает dict с ключами:
         - direction, university, specialization, student
         - is_new_student: True если создан, False если уже был
@@ -361,10 +422,12 @@ def save_diploma_data(
         }
 
     # 5. Создаём нового студента
+    #    incoming_direction_id = None — заполнится из Excel-сервиса
     student = create_student(
         session, full_name, specialization.id,
         file_code=file_code,
-        file_name=file_name
+        file_name=file_name,
+        incoming_direction_id=None
     )
 
     logger.info("Diploma data saved successfully")
