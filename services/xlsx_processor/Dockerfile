@@ -2,17 +2,16 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Сначала копируем только requirements.txt
-COPY requirements.txt .
+# Зависимости для psycopg2
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        libpq-dev gcc curl && \
+    rm -rf /var/lib/apt/lists/*
 
-# Устанавливаем зависимости
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Копируем весь исходный код
-COPY ./src ./src
+COPY ./src .
 
-# Устанавливаем PYTHONPATH
-ENV PYTHONPATH=/app
-
-# Запускаем приложение
-CMD ["uvicorn", "src.api:app", "--host", "0.0.0.0", "--port", "8002", "--reload"]
+# По умолчанию — обработка из MinIO
+CMD ["python", "main.py", "--source", "minio"]
