@@ -12,11 +12,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-
-# ============================================================
-# Models
-# ============================================================
-
 class ParsedStudent(BaseModel):
     full_name: Optional[str] = None
     direction: Optional[str] = None

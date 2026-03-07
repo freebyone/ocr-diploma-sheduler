@@ -1,29 +1,22 @@
-"""
-Точка входа.
-
-Режимы работы:
-  1. --source minio   → скачать xlsx из MinIO бакета и обработать
-  2. --source local   → обработать файлы из локальной папки (--dir)
-  3. без аргументов   → сначала MinIO, потом локальная папка (если указана)
-
-Переменные окружения (или .env):
-  POSTGRES_HOST, POSTGRES_PORT, POSTGRES_DB, POSTGRES_USER, POSTGRES_PASSWORD
-  MINIO_ENDPOINT, MINIO_ACCESS_KEY, MINIO_SECRET_KEY, MINIO_BUCKET
-"""
-
-import argparse
 import sys
 import time
+import signal
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
 from config import settings
 from models import Base
-from service import (
-    process_all_files,
-    process_all_files_from_minio,
-)
+from service import process_all_files_from_minio
+
+# Флаг для корректной остановки
+running = True
+
+
+def handle_signal(signum, frame):
+    global running
+    print(f"\n🛑 Получен сигнал {signum}, завершаем...")
+    running = False
 
 
 def wait_for_db(engine, retries: int = 30, delay: float = 2.0):
@@ -44,22 +37,44 @@ def wait_for_db(engine, retries: int = 30, delay: float = 2.0):
     sys.exit(1)
 
 
+def run_minio_watcher(session_factory, poll_interval: int = 30):
+    """
+    Бесконечный цикл: каждые poll_interval секунд
+    проверяет MinIO бакет и обрабатывает новые файлы.
+    """
+    global running
+
+    print(f"\n{'=' * 60}")
+    print(f"👁️  Мониторинг MinIO бакета '{settings.MINIO_BUCKET}'")
+    print(f"   Интервал опроса: {poll_interval} сек")
+    print(f"   Для остановки: Ctrl+C")
+    print(f"{'=' * 60}\n")
+
+    cycle = 0
+    while running:
+        cycle += 1
+        try:
+            with session_factory() as session:
+                process_all_files_from_minio(session)
+        except KeyboardInterrupt:
+            print("\n🛑 Остановлено пользователем")
+            break
+        except Exception as e:
+            print(f"❌ Ошибка в цикле #{cycle}: {e}")
+
+        for _ in range(poll_interval):
+            if not running:
+                break
+            time.sleep(1)
+
+    print("👋 Мониторинг MinIO завершён")
+
+
 def main():
-    parser = argparse.ArgumentParser(
-        description="Обработка xlsx-файлов → PostgreSQL"
-    )
-    parser.add_argument(
-        "--source",
-        choices=["minio", "local", "both"],
-        default="minio",
-        help="Источник файлов (default: minio)",
-    )
-    parser.add_argument(
-        "--dir",
-        default="./inp/",
-        help="Локальная папка с xlsx (для --source local/both)",
-    )
-    args = parser.parse_args()
+    global running
+
+    signal.signal(signal.SIGINT, handle_signal)
+    signal.signal(signal.SIGTERM, handle_signal)
 
     # ── Подключение к PostgreSQL ──
     print(f"🔌 Подключение к БД: {settings.database_url}")
@@ -75,19 +90,12 @@ def main():
 
     # ── Создание таблиц ──
     Base.metadata.create_all(engine)
-    print("✅ Таблицы созданы/проверены\n")
+    print("✅ Таблицы созданы/проверены")
 
     SessionLocal = sessionmaker(bind=engine)
 
-    # ── Обработка ──
-    with SessionLocal() as session:
-        if args.source in ("minio", "both"):
-            print("\n🗂️  Обработка файлов из MinIO...")
-            process_all_files_from_minio(session)
-
-        if args.source in ("local", "both"):
-            print(f"\n📁 Обработка файлов из папки '{args.dir}'...")
-            process_all_files(args.dir, session)
+    # ── Мониторинг MinIO (бесконечный цикл) ──
+    run_minio_watcher(SessionLocal, settings.POLL_INTERVAL)
 
 
 if __name__ == "__main__":

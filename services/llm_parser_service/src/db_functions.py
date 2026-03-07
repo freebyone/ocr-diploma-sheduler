@@ -171,6 +171,14 @@ def get_student_by_file_code(
     return session.execute(stmt).scalar_one_or_none()
 
 
+def get_student_by_name(
+    session: Session, full_name: str
+) -> Optional[Student]:
+    """Ищет студента только по ФИО."""
+    stmt = select(Student).where(Student.full_name == full_name)
+    return session.execute(stmt).scalar_one_or_none()
+
+
 def get_student_by_name_and_spec(
     session: Session, full_name: str, specialization_id: int
 ) -> Optional[Student]:
@@ -188,14 +196,22 @@ def student_exists(
     """
     Проверяет существует ли студент по любому из критериев:
     1. По file_code (уникальный префикс файла)
-    2. По ФИО + специализации
+    2. По ФИО (мог быть создан Excel-сервисом без specialization)
+    3. По ФИО + специализации
 
     Возвращает найденного студента или None.
     """
+    # Сначала по file_code — самый точный критерий
     existing = get_student_by_file_code(session, file_code)
     if existing:
         return existing
 
+    # Затем по ФИО (мог быть создан Excel-сервисом)
+    existing = get_student_by_name(session, full_name)
+    if existing:
+        return existing
+
+    # По ФИО + специализации
     existing = get_student_by_name_and_spec(
         session, full_name, specialization_id
     )
@@ -368,15 +384,15 @@ def save_diploma_data(
     """
     Сохраняет данные диплома в БД.
 
-    file_code берётся из prefix в JSON (например '0001')
-    file_name — имя исходного изображения (например '0001.jpg')
+    Логика поиска студента:
+    1. Ищем по file_code
+    2. Ищем по ФИО (мог быть создан Excel-сервисом)
+    3. Ищем по ФИО + specialization_id
 
-    Студент привязывается к specialization (из PDF/OCR).
-    incoming_direction_id остаётся None — его заполнит Excel-сервис.
+    Если студент найден и у него specialization_id = None,
+    дозаполняем specialization_id из OCR-данных.
 
-    Возвращает dict с ключами:
-        - direction, university, specialization, student
-        - is_new_student: True если создан, False если уже был
+    Если студент не найден — создаём нового.
     """
     logger.info("=" * 50)
     logger.info("Saving diploma data to database")
@@ -409,9 +425,39 @@ def save_diploma_data(
         logger.info(
             f"⚠️ Student already exists: id={existing_student.id}, "
             f"name='{existing_student.full_name}', "
-            f"file_code='{existing_student.file_code}'"
+            f"file_code='{existing_student.file_code}', "
+            f"specialization_id={existing_student.specialization_id}"
         )
-        logger.info("Skipping student creation (duplicate)")
+
+        # Дозаполняем specialization_id если пустой
+        # (студент мог быть создан Excel-сервисом без specialization)
+        updated_fields = []
+
+        if existing_student.specialization_id is None:
+            existing_student.specialization_id = specialization.id
+            updated_fields.append(
+                f"specialization_id → {specialization.id}"
+            )
+
+        # Дозаполняем file_code если пустой
+        # (студент мог быть создан Excel-сервисом)
+        if existing_student.file_code is None and file_code:
+            existing_student.file_code = file_code
+            updated_fields.append(f"file_code → {file_code}")
+
+        # Дозаполняем file_name если пустой
+        if existing_student.file_name is None and file_name:
+            existing_student.file_name = file_name
+            updated_fields.append(f"file_name → {file_name}")
+
+        if updated_fields:
+            session.flush()
+            logger.info(
+                f"✏️ Updated existing student: "
+                f"{', '.join(updated_fields)}"
+            )
+        else:
+            logger.info("Skipping student creation (duplicate, all fields filled)")
 
         return {
             "direction": direction,

@@ -408,8 +408,8 @@ def process_all_files(directory: str, session: Session):
 
 def process_all_files_from_minio(session: Session):
     """
-    Скачать все xlsx из бакета MinIO (xlsx-documents)
-    и обработать их.
+    Скачать все xlsx из бакета MinIO (xlsx-documents),
+    обработать и переместить в xlsx-results.
     """
     minio_client = MinioClient()
     minio_client.ensure_bucket_exists()
@@ -437,14 +437,16 @@ def process_all_files_from_minio(session: Session):
                 errors.append((object_name, "Не удалось скачать файл"))
                 continue
 
-            # Передаём оригинальное имя объекта для корректного
-            # извлечения code_file
+            # Парсим и сохраняем в БД
             save_excel_to_db(
                 filepath=local_path,
                 session=session,
                 original_filename=object_name,
             )
             success += 1
+
+            # ✅ Успешно обработан → перемещаем в xlsx-results
+            minio_client.move_to_results(object_name)
 
         except Exception as e:
             print(f"   ❌ ОШИБКА: {e}\n")

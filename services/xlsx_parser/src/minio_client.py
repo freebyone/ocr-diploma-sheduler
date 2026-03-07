@@ -1,5 +1,5 @@
 import os
-import tempfile
+import shutil
 from typing import List, Optional
 
 from minio import Minio
@@ -19,16 +19,18 @@ class MinioClient:
             secure=settings.MINIO_SECURE,
         )
         self.bucket = settings.MINIO_BUCKET
+        self.results_bucket = settings.MINIO_RESULTS_BUCKET
         self.temp_dir = settings.TEMP_DIR
         os.makedirs(self.temp_dir, exist_ok=True)
 
     def ensure_bucket_exists(self) -> None:
-        """Создать бакет если не существует"""
-        if not self.client.bucket_exists(self.bucket):
-            self.client.make_bucket(self.bucket)
-            print(f"✅ Бакет '{self.bucket}' создан")
-        else:
-            print(f"ℹ️  Бакет '{self.bucket}' уже существует")
+        """Создать бакеты если не существуют"""
+        for bucket in [self.bucket, self.results_bucket]:
+            if not self.client.bucket_exists(bucket):
+                self.client.make_bucket(bucket)
+                print(f"✅ Бакет '{bucket}' создан")
+            else:
+                print(f"ℹ️  Бакет '{bucket}' уже существует")
 
     def list_xlsx_files(self) -> List[str]:
         """Получить список xlsx-файлов из бакета"""
@@ -51,7 +53,6 @@ class MinioClient:
         Скачать файл из MinIO во временную директорию.
         Возвращает локальный путь к файлу.
         """
-        # Сохраняем структуру подпапок если есть
         safe_name = object_name.replace("/", "_")
         local_path = os.path.join(self.temp_dir, safe_name)
 
@@ -63,6 +64,36 @@ class MinioClient:
             print(f"❌ Ошибка скачивания {object_name}: {e}")
             return None
 
+    def move_to_results(self, object_name: str) -> bool:
+        """
+        Переместить файл из xlsx-documents в xlsx-results.
+        Копирует в results_bucket, затем удаляет из source bucket.
+        """
+        try:
+            # Копируем в xlsx-results
+            from minio.commonconfig import CopySource
+            self.client.copy_object(
+                bucket_name=self.results_bucket,
+                object_name=object_name,
+                source=CopySource(self.bucket, object_name),
+            )
+
+            # Удаляем из xlsx-documents
+            self.client.remove_object(self.bucket, object_name)
+
+            print(
+                f"   📦 Перемещён: {self.bucket}/{object_name} "
+                f"→ {self.results_bucket}/{object_name}"
+            )
+            return True
+
+        except S3Error as e:
+            print(
+                f"❌ Ошибка перемещения {object_name} "
+                f"в {self.results_bucket}: {e}"
+            )
+            return False
+
     def cleanup_temp_file(self, local_path: str) -> None:
         """Удалить временный файл"""
         try:
@@ -73,7 +104,6 @@ class MinioClient:
 
     def cleanup_temp_dir(self) -> None:
         """Очистить всю временную директорию"""
-        import shutil
         try:
             if os.path.exists(self.temp_dir):
                 shutil.rmtree(self.temp_dir)

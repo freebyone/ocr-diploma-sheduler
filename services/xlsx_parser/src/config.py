@@ -22,6 +22,10 @@ class Settings:
     MINIO_SECRET_KEY: str = os.getenv("MINIO_SECRET_KEY", "admin123456")
     MINIO_SECURE: bool = os.getenv("MINIO_SECURE", "false").lower() == "true"
     MINIO_BUCKET: str = os.getenv("MINIO_BUCKET", "xlsx-documents")
+    MINIO_RESULTS_BUCKET: str = os.getenv("MINIO_RESULTS_BUCKET", "xlsx-results")
+
+    # Интервал опроса MinIO (секунды)
+    POLL_INTERVAL: int = int(os.getenv("POLL_INTERVAL", "30"))
 
     # Локальная папка для временных файлов
     TEMP_DIR: str = os.getenv("TEMP_DIR", "/tmp/xlsx_processing")

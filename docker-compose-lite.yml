@@ -83,11 +83,13 @@ services:
 
       mc mb localminio/xlsx-documents --ignore-existing;
       mc mb localminio/documents-lite --ignore-existing;
+      mc mb localminio/xlsx-results --ignore-existing;
       mc mb localminio/templates --ignore-existing;
       mc mb localminio/results --ignore-existing;
       mc mb localminio/errors --ignore-existing;
 
       mc anonymous set download localminio/xlsx-documents;
+      mc anonymous set download localminio/xlsx-results;
       mc anonymous set download localminio/documents-lite;
       mc anonymous set none localminio/templates;
       mc anonymous set none localminio/results;
@@ -109,6 +111,7 @@ services:
           ],
           \"Resource\": [
             \"arn:aws:s3:::xlsx-documents/*\",
+            \"arn:aws:s3:::xlsx-results/*\",
             \"arn:aws:s3:::documents-lite/*\",
             \"arn:aws:s3:::templates/*\",
             \"arn:aws:s3:::results/*\",
@@ -284,7 +287,19 @@ services:
     ports:
       - "8002:8002"
     environment:
-      DB_URL: postgresql://postgres:12345678@postgres:5432/ocr_db
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ocr_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: "12345678"
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ocrminio
+      MINIO_SECRET_KEY: admin123456
+      MINIO_SECURE: "false"
+      MINIO_BUCKET: xlsx-documents
+      MINIO_RESULTS_BUCKET: xlsx-results
+      POLL_INTERVAL: "30"
+      TEMP_DIR: /tmp/xlsx_processing
     volumes:
       - ./services/xlsx_processor:/app
     networks:
@@ -293,6 +308,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
 
 volumes:
   postgres_data:
