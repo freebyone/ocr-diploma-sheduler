@@ -74,7 +74,6 @@ def parse_title_sheet(filepath: str) -> dict:
             if val and isinstance(val, str):
                 all_values.append((cell.row, cell.column, val.strip()))
 
-    # ── Паттерны для ФИО ──
     fio_patterns = [
         r'[Ии]ндивидуальн\w+\s+план\s+'
         r'([А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+)',
@@ -90,7 +89,6 @@ def parse_title_sheet(filepath: str) -> dict:
     ]
 
     for row_num, col_num, val_clean in all_values:
-        # ── Направление ──
         if 'Направление подготовки' in val_clean and not result['direction_name']:
             result['direction_name'] = (
                 re.sub(
@@ -102,7 +100,6 @@ def parse_title_sheet(filepath: str) -> dict:
                 ).strip()
             )
 
-        # ── ФИО ──
         if not result['full_name']:
             for pattern in fio_patterns:
                 m = re.search(pattern, val_clean)
@@ -204,15 +201,12 @@ def save_excel_to_db(filepath: str, session: Session,
     """
     Логика:
     1. code_file — из имени файла
-    2. ФИО — ТОЛЬКО из листа Титул
-    3. Студент ищется по ФИО:
-       - найден + code_file совпадает → привязываем direction
-       - найден + code_file другой → обновляем
+    2. ФИО — из листа Титул
+    3. Студент ищется по file_code, затем по ФИО:
+       - найден → дозаполняем incoming_direction_id
        - не найден → создаём
     4. Данные переаттестации → ControlTable
     """
-    # original_filename нужен т.к. при скачивании из MinIO
-    # локальный путь может отличаться от оригинального имени
     if original_filename is None:
         original_filename = os.path.basename(filepath)
 
@@ -223,7 +217,7 @@ def save_excel_to_db(filepath: str, session: Session,
     print(f"📄 {filename}")
     print(f"   Code: {code_file}")
 
-    # ═══ 2. Проверяем дубликат ═══
+    # ═══ 2. Проверяем дубликат ExcelDataFile ═══
     existing_file = session.query(ExcelDataFile).filter_by(
         code_file=code_file
     ).first()
@@ -231,7 +225,7 @@ def save_excel_to_db(filepath: str, session: Session,
         print(f"   ⚠️ Файл уже загружен (code_file={code_file}), пропускаем\n")
         return existing_file
 
-    # ═══ 3. Парсим Титул (ФИО только отсюда!) ═══
+    # ═══ 3. Парсим Титул ═══
     title_data = parse_title_sheet(filepath)
 
     direction_name = title_data['direction_name']
@@ -244,9 +238,7 @@ def save_excel_to_db(filepath: str, session: Session,
 
     if not full_name:
         raise ValueError(
-            f"ФИО не найдено на листе Титул в файле {filename}. "
-            f"Запустите debug_sheet('{filepath}', 'Титул') чтобы "
-            f"увидеть содержимое и поправить паттерн поиска."
+            f"ФИО не найдено на листе Титул в файле {filename}."
         )
 
     print(f"   Направление: {direction_name[:80]}...")
@@ -259,30 +251,43 @@ def save_excel_to_db(filepath: str, session: Session,
     )
     print(f"   Direction ID: {direction.id}")
 
-    # ═══ 5. Student ═══
+    # ═══ 5. Student — ищем по file_code, затем по ФИО ═══
     student = session.query(Student).filter_by(
-        full_name=full_name
+        file_code=code_file
     ).first()
 
+    if not student:
+        student = session.query(Student).filter_by(
+            full_name=full_name
+        ).first()
+
     if student:
-        if student.file_code == code_file:
-            print(f"   Студент найден (id={student.id}), code_file совпадает")
-            if student.incoming_direction_id != direction.id:
-                student.incoming_direction_id = direction.id
-                print(
-                    f"   → Обновлён incoming_direction_id → {direction.id}"
-                )
-        else:
-            print(
-                f"   Студент '{full_name}' найден (id={student.id}), "
-                f"но code_file отличается: БД='{student.file_code}', "
-                f"файл='{code_file}'"
-            )
-            student.file_code = code_file
-            student.file_name = filename
+        # Студент уже существует — дозаполняем поля
+        updated = []
+
+        if student.incoming_direction_id != direction.id:
             student.incoming_direction_id = direction.id
-            print(f"   → Обновлён code_file и direction")
+            updated.append(f"incoming_direction_id → {direction.id}")
+
+        # Если file_code не совпадает (нашли по ФИО) — НЕ перезаписываем,
+        # т.к. file_code уникален и мог быть установлен OCR-сервисом
+        if student.file_code is None:
+            student.file_code = code_file
+            updated.append(f"file_code → {code_file}")
+
+        if student.file_name is None:
+            student.file_name = filename
+            updated.append(f"file_name → {filename}")
+
+        session.flush()
+
+        if updated:
+            print(f"   ✏️ Студент обновлён (id={student.id}): "
+                  f"{', '.join(updated)}")
+        else:
+            print(f"   Студент найден (id={student.id}), данные актуальны")
     else:
+        # Студент не найден — создаём нового
         student = Student(
             full_name=full_name,
             file_code=code_file,
@@ -295,19 +300,15 @@ def save_excel_to_db(filepath: str, session: Session,
         print(f"   Студент создан (id={student.id})")
 
     # ═══ 6. ExcelDataFile ═══
-    excel_file = session.query(ExcelDataFile).filter_by(
-        code_file=code_file
-    ).first()
-    if not excel_file:
-        excel_file = ExcelDataFile(
-            name=filename,
-            full_name=full_name,
-            code_file=code_file,
-            incoming_direction_id=direction.id,
-        )
-        session.add(excel_file)
-        session.flush()
-        print(f"   ExcelDataFile создан (id={excel_file.id})")
+    excel_file = ExcelDataFile(
+        name=filename,
+        full_name=full_name,
+        code_file=code_file,
+        incoming_direction_id=direction.id,
+    )
+    session.add(excel_file)
+    session.flush()
+    print(f"   ExcelDataFile создан (id={excel_file.id})")
 
     # ═══ 7. Парсим Переаттестация ═══
     rows_data = parse_reattest_sheet(filepath)
@@ -372,44 +373,14 @@ def save_excel_to_db(filepath: str, session: Session,
 
 
 # ══════════════════════════════════════════════
-#  ОБРАБОТКА ЛОКАЛЬНОЙ ПАПКИ
-# ══════════════════════════════════════════════
-
-def process_all_files(directory: str, session: Session):
-    """Обработать все xlsx-файлы из локальной директории"""
-    files = sorted([
-        f for f in os.listdir(directory)
-        if f.endswith(('.xlsx', '.xls')) and not f.startswith('~$')
-    ])
-
-    print(f"{'=' * 60}")
-    print(f"Найдено файлов в папке: {len(files)}")
-    print(f"{'=' * 60}\n")
-
-    success = 0
-    errors = []
-
-    for filename in files:
-        filepath = os.path.join(directory, filename)
-        try:
-            save_excel_to_db(filepath, session)
-            success += 1
-        except Exception as e:
-            print(f"   ❌ ОШИБКА: {e}\n")
-            errors.append((filename, str(e)))
-            session.rollback()
-
-    _print_summary(success, len(files), errors)
-
-
-# ══════════════════════════════════════════════
 #  ОБРАБОТКА ФАЙЛОВ ИЗ MINIO
 # ══════════════════════════════════════════════
 
 def process_all_files_from_minio(session: Session):
     """
     Скачать все xlsx из бакета MinIO (xlsx-documents),
-    обработать и переместить в xlsx-results.
+    обработать, переместить в xlsx-results.
+    При ошибке — переместить в xlsx-errors.
     """
     minio_client = MinioClient()
     minio_client.ensure_bucket_exists()
@@ -435,6 +406,7 @@ def process_all_files_from_minio(session: Session):
             local_path = minio_client.download_file(object_name)
             if local_path is None:
                 errors.append((object_name, "Не удалось скачать файл"))
+                minio_client.move_to_errors(object_name)
                 continue
 
             # Парсим и сохраняем в БД
@@ -445,7 +417,7 @@ def process_all_files_from_minio(session: Session):
             )
             success += 1
 
-            # ✅ Успешно обработан → перемещаем в xlsx-results
+            # ✅ Успешно → перемещаем в xlsx-results
             minio_client.move_to_results(object_name)
 
         except Exception as e:
@@ -453,14 +425,14 @@ def process_all_files_from_minio(session: Session):
             errors.append((object_name, str(e)))
             session.rollback()
 
+            # ❌ Ошибка → перемещаем в xlsx-errors
+            minio_client.move_to_errors(object_name)
+
         finally:
-            # Удаляем временный файл
             if local_path:
                 minio_client.cleanup_temp_file(local_path)
 
     _print_summary(success, len(object_names), errors)
-
-    # Очищаем временную директорию
     minio_client.cleanup_temp_dir()
 
 

@@ -4,6 +4,7 @@ from typing import List, Optional
 
 from minio import Minio
 from minio.error import S3Error
+from minio.commonconfig import CopySource
 
 from config import settings
 
@@ -20,12 +21,13 @@ class MinioClient:
         )
         self.bucket = settings.MINIO_BUCKET
         self.results_bucket = settings.MINIO_RESULTS_BUCKET
+        self.errors_bucket = settings.MINIO_ERRORS_BUCKET
         self.temp_dir = settings.TEMP_DIR
         os.makedirs(self.temp_dir, exist_ok=True)
 
     def ensure_bucket_exists(self) -> None:
         """Создать бакеты если не существуют"""
-        for bucket in [self.bucket, self.results_bucket]:
+        for bucket in [self.bucket, self.results_bucket, self.errors_bucket]:
             if not self.client.bucket_exists(bucket):
                 self.client.make_bucket(bucket)
                 print(f"✅ Бакет '{bucket}' создан")
@@ -64,35 +66,34 @@ class MinioClient:
             print(f"❌ Ошибка скачивания {object_name}: {e}")
             return None
 
-    def move_to_results(self, object_name: str) -> bool:
-        """
-        Переместить файл из xlsx-documents в xlsx-results.
-        Копирует в results_bucket, затем удаляет из source bucket.
-        """
+    def _move_file(self, object_name: str, target_bucket: str) -> bool:
+        """Переместить файл из source бакета в target бакет"""
         try:
-            # Копируем в xlsx-results
-            from minio.commonconfig import CopySource
             self.client.copy_object(
-                bucket_name=self.results_bucket,
+                bucket_name=target_bucket,
                 object_name=object_name,
                 source=CopySource(self.bucket, object_name),
             )
-
-            # Удаляем из xlsx-documents
             self.client.remove_object(self.bucket, object_name)
-
             print(
                 f"   📦 Перемещён: {self.bucket}/{object_name} "
-                f"→ {self.results_bucket}/{object_name}"
+                f"→ {target_bucket}/{object_name}"
             )
             return True
-
         except S3Error as e:
             print(
                 f"❌ Ошибка перемещения {object_name} "
-                f"в {self.results_bucket}: {e}"
+                f"в {target_bucket}: {e}"
             )
             return False
+
+    def move_to_results(self, object_name: str) -> bool:
+        """Переместить успешно обработанный файл в xlsx-results"""
+        return self._move_file(object_name, self.results_bucket)
+
+    def move_to_errors(self, object_name: str) -> bool:
+        """Переместить файл с ошибкой в xlsx-errors"""
+        return self._move_file(object_name, self.errors_bucket)
 
     def cleanup_temp_file(self, local_path: str) -> None:
         """Удалить временный файл"""

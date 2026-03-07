@@ -82,7 +82,7 @@ class IncomingDirection(Base):
         comment='Название направления из эксель с титула'
     )
 
-    is_used: Mapped[bool] = mapped_column(nullable=False, default=False, comment="Был ли по этому направлению сгенерирован ворд файл (приказ)")
+    is_used: Mapped[bool] = mapped_column(nullable=True, default=False, comment="Был ли по этому направлению сгенерирован ворд файл (приказ)")
 
     incoming_direction_files: Mapped[List["ExcelDataFile"]] = relationship(
         back_populates="excel_rel"

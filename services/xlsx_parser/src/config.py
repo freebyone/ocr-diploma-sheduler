@@ -23,6 +23,7 @@ class Settings:
     MINIO_SECURE: bool = os.getenv("MINIO_SECURE", "false").lower() == "true"
     MINIO_BUCKET: str = os.getenv("MINIO_BUCKET", "xlsx-documents")
     MINIO_RESULTS_BUCKET: str = os.getenv("MINIO_RESULTS_BUCKET", "xlsx-results")
+    MINIO_ERRORS_BUCKET: str = os.getenv("MINIO_ERRORS_BUCKET", "xlsx-errors")
 
     # Интервал опроса MinIO (секунды)
     POLL_INTERVAL: int = int(os.getenv("POLL_INTERVAL", "30"))
