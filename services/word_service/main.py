@@ -12,7 +12,7 @@ from docx.oxml import parse_xml
 
 from sqlalchemy.orm import Session, joinedload
 
-from models import (
+from services.word_service.src.models import (
     IncomingDirection, Student, Specialization, University,
     ControlTable, StudyProgram, FormatControl, FormatRetests,
 )
@@ -468,7 +468,7 @@ def generate_all_orders(session: Session, output_dir: str = 'output'):
 if __name__ == '__main__':
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
-    from models import Base
+    from services.word_service.src.models import Base
 
     engine = create_engine('sqlite:///data.db')
     Base.metadata.create_all(engine)

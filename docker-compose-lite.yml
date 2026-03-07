@@ -84,12 +84,14 @@ services:
       mc mb localminio/xlsx-documents --ignore-existing;
       mc mb localminio/documents-lite --ignore-existing;
       mc mb localminio/xlsx-results --ignore-existing;
+      mc mb localminio/xlsx-errors --ignore-existing;
       mc mb localminio/templates --ignore-existing;
       mc mb localminio/results --ignore-existing;
       mc mb localminio/errors --ignore-existing;
 
       mc anonymous set download localminio/xlsx-documents;
       mc anonymous set download localminio/xlsx-results;
+      mc anonymous set download localminio/xlsx-errors;
       mc anonymous set download localminio/documents-lite;
       mc anonymous set none localminio/templates;
       mc anonymous set none localminio/results;
@@ -100,7 +102,7 @@ services:
       echo 'Creating policy...';
 
       echo '{
-        \"Version\": \"2012-10-17\",
+        \"Version\": \"2025-10-17\",
         \"Statement\": [{
           \"Effect\": \"Allow\",
           \"Action\": [
@@ -112,6 +114,7 @@ services:
           \"Resource\": [
             \"arn:aws:s3:::xlsx-documents/*\",
             \"arn:aws:s3:::xlsx-results/*\",
+            \"arn:aws:s3:::xlsx-errors/*\",
             \"arn:aws:s3:::documents-lite/*\",
             \"arn:aws:s3:::templates/*\",
             \"arn:aws:s3:::results/*\",
@@ -297,6 +300,7 @@ services:
       MINIO_SECRET_KEY: admin123456
       MINIO_SECURE: "false"
       MINIO_BUCKET: xlsx-documents
+      MINIO_ERRORS_BUCKET: xlsx-errors
       MINIO_RESULTS_BUCKET: xlsx-results
       POLL_INTERVAL: "30"
       TEMP_DIR: /tmp/xlsx_processing
@@ -310,6 +314,32 @@ services:
         condition: service_healthy
       minio-init:
         condition: service_completed_successfully
+  word-service:
+    build: ./services/word_service
+    container_name: word-service
+    ports:
+      - "8007:8007"
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: "12345678"
+      POSTGRES_DB: ocr_db
+      OUTPUT_DIR: /src/output_orders
+    volumes:
+      - word_output:/src/output_orders
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8007/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
 
 volumes:
   postgres_data:
@@ -317,6 +347,7 @@ volumes:
   minio_data:
   redis_data:
   ollama_data:
+  word_output:
 
 networks:
   network:

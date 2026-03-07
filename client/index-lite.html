@@ -3,492 +3,952 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Загрузка PDF и Excel файлов</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <title>Загрузка файлов и генерация приказов</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
     <style>
+        /* ══════════════════════════════════════════════
+           БАЗОВЫЕ СТИЛИ
+           ══════════════════════════════════════════════ */
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         }
 
         body {
-            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
             padding: 20px;
-            color: #333;
         }
 
         .container {
-            max-width: 1200px;
+            max-width: 900px;
             margin: 0 auto;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
         }
 
         header {
+            background: linear-gradient(135deg, #2c3e50, #3498db);
+            color: white;
+            padding: 30px;
             text-align: center;
-            margin-bottom: 30px;
-            padding: 20px;
-            background-color: #fff;
-            border-radius: 12px;
-            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.08);
         }
 
-        h1 {
-            color: #2c3e50;
-            margin-bottom: 10px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 15px;
+        header h1 {
+            font-size: 24px;
+            margin-bottom: 8px;
         }
 
-        h1 i { color: #3498db; }
-
-        .description {
-            color: #7f8c8d;
-            max-width: 800px;
-            margin: 0 auto;
-            line-height: 1.6;
+        header .description {
+            font-size: 14px;
+            opacity: 0.85;
+            line-height: 1.5;
         }
 
+        /* ══════════════════════════════════════════════
+           ТАБЫ
+           ══════════════════════════════════════════════ */
         .tabs {
             display: flex;
-            background: white;
-            border-radius: 12px 12px 0 0;
-            overflow: hidden;
-            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.08);
-            margin-bottom: 0;
+            border-bottom: 2px solid #ecf0f1;
+            background: #f8f9fa;
         }
 
         .tab {
             flex: 1;
-            padding: 20px;
-            text-align: center;
-            background: #f8f9fa;
+            padding: 14px 20px;
             border: none;
+            background: transparent;
             cursor: pointer;
-            font-size: 18px;
+            font-size: 14px;
             font-weight: 600;
             color: #7f8c8d;
             transition: all 0.3s;
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 10px;
+            gap: 8px;
+            position: relative;
         }
 
-        .tab:hover { background: #e9ecef; }
+        .tab:hover {
+            color: #2c3e50;
+            background: #ecf0f1;
+        }
 
         .tab.active {
-            background: white;
             color: #2c3e50;
-            border-bottom: 3px solid #3498db;
         }
 
-        .tab[data-tab="pdf"].active { border-bottom-color: #e74c3c; }
-        .tab[data-tab="excel"].active { border-bottom-color: #27ae60; }
+        .tab.active[data-tab="pdf"] {
+            color: #e74c3c;
+        }
+
+        .tab.active[data-tab="excel"] {
+            color: #27ae60;
+        }
+
+        .tab.active[data-tab="orders"] {
+            color: #8e44ad;
+        }
+
+        .tab.active::after {
+            content: '';
+            position: absolute;
+            bottom: -2px;
+            left: 0;
+            right: 0;
+            height: 3px;
+            border-radius: 3px 3px 0 0;
+        }
+
+        .tab.active[data-tab="pdf"]::after {
+            background: #e74c3c;
+        }
+
+        .tab.active[data-tab="excel"]::after {
+            background: #27ae60;
+        }
+
+        .tab.active[data-tab="orders"]::after {
+            background: #8e44ad;
+        }
 
         .tab-content {
             display: none;
-            background: white;
-            padding: 40px;
-            border-radius: 0 0 12px 12px;
-            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.08);
-            margin-bottom: 30px;
+            padding: 24px;
         }
 
-        .tab-content.active { display: block; }
+        .tab-content.active {
+            display: block;
+        }
 
+        /* ══════════════════════════════════════════════
+           ПОДСКАЗКИ / ХИНТЫ
+           ══════════════════════════════════════════════ */
+        .filename-hint, .minio-hint, .orders-hint {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            padding: 14px 18px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+
+        .filename-hint {
+            background: #fdf1ef;
+            border-left: 4px solid #e74c3c;
+            color: #c0392b;
+        }
+
+        .minio-hint {
+            background: #e8f8f0;
+            border-left: 4px solid #27ae60;
+            color: #1e8449;
+        }
+
+        .orders-hint {
+            background: #f3e8ff;
+            border-left: 4px solid #8e44ad;
+            color: #6c3483;
+        }
+
+        .filename-hint i, .minio-hint i, .orders-hint i {
+            font-size: 20px;
+            margin-top: 2px;
+        }
+
+        .filename-hint code, .minio-hint code, .orders-hint code {
+            background: rgba(0, 0, 0, 0.08);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+
+        /* ══════════════════════════════════════════════
+           ЗОНА ЗАГРУЗКИ
+           ══════════════════════════════════════════════ */
         .upload-area {
-            text-align: center;
-            padding: 40px 20px;
-            border: 3px dashed;
+            border: 2px dashed #bdc3c7;
             border-radius: 12px;
-            margin-bottom: 30px;
+            padding: 40px 20px;
+            text-align: center;
             cursor: pointer;
             transition: all 0.3s;
-        }
-
-        .upload-area.pdf {
-            border-color: #e74c3c;
-            background-color: #fdf1ef;
-        }
-
-        .upload-area.pdf:hover {
-            background-color: #fbe9e7;
-            border-color: #c0392b;
-        }
-
-        .upload-area.excel {
-            border-color: #27ae60;
-            background-color: #f0f9f4;
-        }
-
-        .upload-area.excel:hover {
-            background-color: #e3f3e9;
-            border-color: #219a52;
-        }
-
-        .upload-icon {
-            font-size: 60px;
             margin-bottom: 20px;
         }
 
-        .upload-icon.pdf { color: #e74c3c; }
-        .upload-icon.excel { color: #27ae60; }
+        .upload-area.pdf {
+            background: #fdf1ef;
+        }
+
+        .upload-area.excel {
+            background: #f0f9f4;
+        }
+
+        .upload-area:hover {
+            border-color: #3498db;
+            transform: translateY(-2px);
+        }
+
+        .upload-icon {
+            font-size: 48px;
+            margin-bottom: 12px;
+        }
+
+        .upload-icon.pdf {
+            color: #e74c3c;
+        }
+
+        .upload-icon.excel {
+            color: #27ae60;
+        }
 
         .upload-area h3 {
-            margin-bottom: 15px;
             color: #2c3e50;
+            margin-bottom: 8px;
         }
 
         .upload-area p {
             color: #7f8c8d;
-            margin-bottom: 10px;
+            font-size: 13px;
         }
 
-        .file-input { display: none; }
-
-        .filename-hint {
-            background: #fff3cd;
-            border: 1px solid #ffc107;
-            border-radius: 8px;
-            padding: 12px 16px;
-            margin-bottom: 20px;
-            display: flex;
-            align-items: flex-start;
-            gap: 12px;
-            font-size: 14px;
-            color: #856404;
-        }
-
-        .filename-hint i {
-            font-size: 18px;
-            margin-top: 2px;
-        }
-
-        .filename-hint code {
-            background: rgba(0,0,0,0.08);
-            padding: 2px 6px;
-            border-radius: 4px;
-            font-family: monospace;
-        }
-
-        /* Подсказка для Excel — MinIO */
-        .minio-hint {
-            background: #d1ecf1;
-            border: 1px solid #17a2b8;
-            border-radius: 8px;
-            padding: 12px 16px;
-            margin-bottom: 20px;
-            display: flex;
-            align-items: flex-start;
-            gap: 12px;
-            font-size: 14px;
-            color: #0c5460;
-        }
-
-        .minio-hint i {
-            font-size: 18px;
-            margin-top: 2px;
-        }
-
-        .minio-hint code {
-            background: rgba(0,0,0,0.08);
-            padding: 2px 6px;
-            border-radius: 4px;
-            font-family: monospace;
-        }
-
-        .file-counter {
-            position: fixed;
-            bottom: 30px;
-            right: 30px;
-            width: 60px;
-            height: 60px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 24px;
-            font-weight: bold;
-            cursor: pointer;
-            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
-            z-index: 1000;
-            transition: all 0.3s;
-            color: white;
-        }
-
-        .file-counter.pdf { background: #e74c3c; }
-        .file-counter.excel { background: #27ae60; }
-        .file-counter:hover { transform: scale(1.1); }
-
-        .modal-overlay {
-            position: fixed;
-            top: 0; left: 0; right: 0; bottom: 0;
-            background: rgba(0, 0, 0, 0.5);
+        .file-input {
             display: none;
-            align-items: center;
-            justify-content: center;
-            z-index: 1001;
         }
 
-        .modal-overlay.active { display: flex; }
-
-        .modal {
-            background: white;
-            border-radius: 12px;
-            width: 90%;
-            max-width: 600px;
-            max-height: 80vh;
-            overflow: hidden;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
-        }
-
-        .modal-header {
-            padding: 20px;
-            color: white;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .modal-header.pdf { background: #e74c3c; }
-        .modal-header.excel { background: #27ae60; }
-
-        .modal-header h3 {
-            margin: 0;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .modal-close {
-            background: none;
+        /* ══════════════════════════════════════════════
+           КНОПКИ
+           ══════════════════════════════════════════════ */
+        .btn {
+            padding: 10px 20px;
             border: none;
-            color: white;
-            font-size: 24px;
-            cursor: pointer;
-            width: 40px;
-            height: 40px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: background 0.3s;
-        }
-
-        .modal-close:hover { background: rgba(255, 255, 255, 0.2); }
-
-        .modal-body {
-            padding: 20px;
-            max-height: 50vh;
-            overflow-y: auto;
-        }
-
-        .file-list {
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-        }
-
-        .file-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 15px;
-            background: #f8f9fa;
             border-radius: 8px;
-            border-left: 4px solid;
-        }
-
-        .file-item.pdf { border-left-color: #e74c3c; }
-        .file-item.excel { border-left-color: #27ae60; }
-
-        .file-info {
-            display: flex;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: inline-flex;
             align-items: center;
-            gap: 15px;
+            gap: 8px;
         }
 
-        .file-icon.pdf { color: #e74c3c; }
-        .file-icon.excel { color: #27ae60; }
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
 
-        .file-details h4 {
-            margin-bottom: 5px;
+        .btn-primary {
+            color: white;
+        }
+
+        .btn-primary.pdf {
+            background: linear-gradient(135deg, #e74c3c, #c0392b);
+        }
+
+        .btn-primary.excel {
+            background: linear-gradient(135deg, #27ae60, #1e8449);
+        }
+
+        .btn-primary.orders {
+            background: linear-gradient(135deg, #8e44ad, #6c3483);
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+        }
+
+        .btn-secondary {
+            background: #ecf0f1;
             color: #2c3e50;
         }
 
-        .file-details p {
-            color: #7f8c8d;
-            font-size: 14px;
+        .btn-secondary:hover {
+            background: #d5dbdb;
         }
 
-        .file-prefix-badge {
-            display: inline-block;
+        .btn-danger {
             background: #e74c3c;
             color: white;
-            padding: 2px 8px;
-            border-radius: 12px;
-            font-size: 11px;
-            font-weight: 700;
-            margin-left: 8px;
-            letter-spacing: 0.5px;
         }
 
-        .file-minio-badge {
-            display: inline-block;
+        .btn-danger:hover {
+            background: #c0392b;
+        }
+
+        .btn-success {
             background: #27ae60;
             color: white;
-            padding: 2px 8px;
-            border-radius: 12px;
-            font-size: 11px;
-            font-weight: 700;
-            margin-left: 8px;
-            letter-spacing: 0.5px;
         }
 
-        .file-remove {
-            background: none;
-            border: none;
-            color: #e74c3c;
-            font-size: 20px;
-            cursor: pointer;
-            width: 36px;
-            height: 36px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: background 0.3s;
+        .btn-success:hover {
+            background: #1e8449;
         }
 
-        .file-remove:hover { background: rgba(231, 76, 60, 0.1); }
-
-        .modal-footer {
-            padding: 20px;
-            border-top: 1px solid #eee;
-            display: flex;
-            justify-content: flex-end;
-            gap: 15px;
+        .btn-outline {
+            background: transparent;
+            border: 2px solid #8e44ad;
+            color: #8e44ad;
         }
 
-        .btn {
-            padding: 12px 24px;
-            border-radius: 8px;
-            border: none;
+        .btn-outline:hover {
+            background: #8e44ad;
+            color: white;
+        }
+
+        .btn-large {
+            padding: 14px 28px;
             font-size: 16px;
-            font-weight: 600;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            transition: all 0.3s;
         }
 
-        .btn-primary.pdf { background: #e74c3c; color: white; }
-        .btn-primary.pdf:hover { background: #c0392b; }
-        .btn-primary.excel { background: #27ae60; color: white; }
-        .btn-primary.excel:hover { background: #219a52; }
-        .btn-primary:disabled { background: #bdc3c7; cursor: not-allowed; }
-        .btn-secondary { background: #95a5a6; color: white; }
-        .btn-secondary:hover { background: #7f8c8d; }
-        .btn-danger { background: #e74c3c; color: white; }
-        .btn-danger:hover { background: #c0392b; }
+        .btn-small {
+            padding: 6px 12px;
+            font-size: 12px;
+        }
 
+        .process-buttons {
+            text-align: center;
+            margin-top: 20px;
+        }
+
+        /* ══════════════════════════════════════════════
+           ПРОГРЕСС БАР
+           ══════════════════════════════════════════════ */
         .progress-container {
-            margin: 20px 0;
             display: none;
+            margin: 16px 0;
         }
 
         .progress-bar {
             width: 100%;
-            height: 20px;
+            height: 8px;
             background: #ecf0f1;
             border-radius: 10px;
             overflow: hidden;
+            margin-bottom: 6px;
         }
 
         .progress-fill {
             height: 100%;
-            width: 0%;
-            transition: width 0.3s;
+            border-radius: 10px;
+            transition: width 0.4s ease;
+            width: 0;
         }
 
-        .progress-fill.pdf { background: #e74c3c; }
-        .progress-fill.excel { background: #27ae60; }
+        .progress-fill.pdf {
+            background: linear-gradient(90deg, #e74c3c, #c0392b);
+        }
+
+        .progress-fill.excel {
+            background: linear-gradient(90deg, #27ae60, #1e8449);
+        }
+
+        .progress-fill.orders {
+            background: linear-gradient(90deg, #8e44ad, #6c3483);
+        }
 
         .progress-text {
+            font-size: 13px;
+            color: #7f8c8d;
             text-align: center;
-            margin-top: 10px;
-            color: #2c3e50;
         }
 
+        /* ══════════════════════════════════════════════
+           СТАТУС СООБЩЕНИЯ
+           ══════════════════════════════════════════════ */
         .status-message {
-            padding: 15px;
+            padding: 0;
+            margin: 0;
             border-radius: 8px;
-            margin-top: 20px;
+            font-size: 13px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            transition: all 0.3s;
+            max-height: 0;
+            overflow: hidden;
+        }
+
+        .status-message.status-success {
+            background: #d5f5e3;
+            color: #1e8449;
+            padding: 14px;
+            margin: 12px 0;
+            max-height: 2000px;
+            border-left: 4px solid #27ae60;
+        }
+
+        .status-message.status-error {
+            background: #fadbd8;
+            color: #c0392b;
+            padding: 14px;
+            margin: 12px 0;
+            max-height: 2000px;
+            border-left: 4px solid #e74c3c;
+        }
+
+        .status-message.status-info {
+            background: #d6eaf8;
+            color: #2471a3;
+            padding: 14px;
+            margin: 12px 0;
+            max-height: 2000px;
+            border-left: 4px solid #3498db;
+        }
+
+        /* ══════════════════════════════════════════════
+           СЧЕТЧИК ФАЙЛОВ
+           ══════════════════════════════════════════════ */
+        .file-counter {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
             display: none;
-            white-space: pre-line;
-        }
-
-        .status-success {
-            background: #d4edda;
-            color: #155724;
-            border-left: 5px solid #28a745;
-            display: block;
-        }
-
-        .status-error {
-            background: #f8d7da;
-            color: #721c24;
-            border-left: 5px solid #dc3545;
-            display: block;
-        }
-
-        .status-info {
-            background: #d1ecf1;
-            color: #0c5460;
-            border-left: 5px solid #17a2b8;
-            display: block;
-        }
-
-        .process-buttons {
-            display: flex;
+            align-items: center;
             justify-content: center;
-            margin-top: 30px;
+            color: white;
+            font-weight: bold;
+            font-size: 20px;
+            cursor: pointer;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+            z-index: 1000;
+            transition: transform 0.3s;
         }
 
-        .btn-large {
-            padding: 16px 32px;
+        .file-counter:hover {
+            transform: scale(1.15);
+        }
+
+        .file-counter.pdf {
+            background: linear-gradient(135deg, #e74c3c, #c0392b);
+        }
+
+        .file-counter.excel {
+            background: linear-gradient(135deg, #27ae60, #1e8449);
+        }
+
+        .file-counter.orders {
+            background: linear-gradient(135deg, #8e44ad, #6c3483);
+        }
+
+        /* ══════════════════════════════════════════════
+           МОДАЛЬНОЕ ОКНО
+           ══════════════════════════════════════════════ */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.6);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+            backdrop-filter: blur(4px);
+        }
+
+        .modal-overlay.active {
+            display: flex;
+        }
+
+        .modal {
+            background: white;
+            border-radius: 16px;
+            width: 90%;
+            max-width: 650px;
+            max-height: 80vh;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 25px 80px rgba(0, 0, 0, 0.4);
+        }
+
+        .modal-header {
+            padding: 20px 24px;
+            border-radius: 16px 16px 0 0;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            color: white;
+        }
+
+        .modal-header.pdf {
+            background: linear-gradient(135deg, #e74c3c, #c0392b);
+        }
+
+        .modal-header.excel {
+            background: linear-gradient(135deg, #27ae60, #1e8449);
+        }
+
+        .modal-header.orders {
+            background: linear-gradient(135deg, #8e44ad, #6c3483);
+        }
+
+        .modal-header h3 {
             font-size: 18px;
         }
 
-        @media (max-width: 768px) {
-            .tab-content { padding: 20px; }
-            .process-buttons { flex-direction: column; }
-            .file-counter {
-                bottom: 20px;
-                right: 20px;
-                width: 50px;
-                height: 50px;
-                font-size: 20px;
-            }
+        .modal-close {
+            background: rgba(255, 255, 255, 0.2);
+            border: none;
+            color: white;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            font-size: 18px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        .modal-close:hover {
+            background: rgba(255, 255, 255, 0.4);
+        }
+
+        .modal-body {
+            padding: 20px 24px;
+            overflow-y: auto;
+            flex: 1;
+        }
+
+        .modal-footer {
+            padding: 16px 24px;
+            border-top: 1px solid #ecf0f1;
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+        }
+
+        /* ══════════════════════════════════════════════
+           ЭЛЕМЕНТЫ ФАЙЛА В МОДАЛКЕ
+           ══════════════════════════════════════════════ */
+        .file-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 14px;
+            border-radius: 10px;
+            margin-bottom: 8px;
+            transition: all 0.2s;
+        }
+
+        .file-item.pdf {
+            background: #fdf1ef;
+        }
+
+        .file-item.excel {
+            background: #f0f9f4;
+        }
+
+        .file-item:hover {
+            transform: translateX(4px);
+        }
+
+        .file-info {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex: 1;
+            min-width: 0;
+        }
+
+        .file-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            flex-shrink: 0;
+        }
+
+        .file-icon.pdf {
+            background: #fadbd8;
+            color: #e74c3c;
+        }
+
+        .file-icon.excel {
+            background: #d5f5e3;
+            color: #27ae60;
+        }
+
+        .file-details {
+            min-width: 0;
+        }
+
+        .file-details h4 {
+            font-size: 13px;
+            color: #2c3e50;
+            margin-bottom: 2px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .file-details p {
+            font-size: 11px;
+            color: #95a5a6;
+        }
+
+        .file-remove {
+            background: #fadbd8;
+            border: none;
+            color: #e74c3c;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.2s;
+            flex-shrink: 0;
+        }
+
+        .file-remove:hover {
+            background: #e74c3c;
+            color: white;
+        }
+
+        .file-prefix-badge {
+            background: #e74c3c;
+            color: white;
+            padding: 1px 6px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 600;
+            margin-left: 6px;
+        }
+
+        .file-minio-badge {
+            background: #27ae60;
+            color: white;
+            padding: 1px 6px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 600;
+            margin-left: 6px;
+        }
+
+        /* ══════════════════════════════════════════════
+           TAB ПРИКАЗОВ — СПЕЦИФИЧЕСКИЕ СТИЛИ
+           ══════════════════════════════════════════════ */
+        .directions-list {
+            margin-top: 16px;
+        }
+
+        .direction-card {
+            border: 1px solid #e8e8e8;
+            border-radius: 10px;
+            padding: 16px;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            transition: all 0.2s;
+            cursor: pointer;
+        }
+
+        .direction-card:hover {
+            border-color: #8e44ad;
+            box-shadow: 0 2px 12px rgba(142, 68, 173, 0.12);
+            transform: translateY(-1px);
+        }
+
+        .direction-card.selected {
+            border-color: #8e44ad;
+            background: #f9f0ff;
+        }
+
+        .direction-card.used {
+            opacity: 0.6;
+            border-style: dashed;
+        }
+
+        .direction-checkbox {
+            width: 22px;
+            height: 22px;
+            accent-color: #8e44ad;
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+
+        .direction-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .direction-name {
+            font-size: 14px;
+            font-weight: 600;
+            color: #2c3e50;
+            margin-bottom: 4px;
+            word-wrap: break-word;
+        }
+
+        .direction-meta {
+            font-size: 12px;
+            color: #95a5a6;
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+
+        .direction-meta span {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .badge-new {
+            background: #d5f5e3;
+            color: #1e8449;
+        }
+
+        .badge-used {
+            background: #fadbd8;
+            color: #c0392b;
+        }
+
+        .select-controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 14px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .select-controls .btn {
+            font-size: 12px;
+            padding: 6px 14px;
+        }
+
+        .selected-count {
+            font-size: 13px;
+            color: #7f8c8d;
+            margin-left: auto;
+        }
+
+        .directions-loading {
+            text-align: center;
+            padding: 40px;
+            color: #95a5a6;
+        }
+
+        .directions-loading i {
+            font-size: 32px;
+            margin-bottom: 12px;
+            display: block;
+        }
+
+        .directions-empty {
+            text-align: center;
+            padding: 40px;
+            color: #bdc3c7;
+        }
+
+        .directions-empty i {
+            font-size: 48px;
+            margin-bottom: 12px;
+            display: block;
+        }
+
+        /* Результаты генерации */
+        .generation-results {
+            margin-top: 20px;
+        }
+
+        .result-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 14px;
+            border-radius: 10px;
+            margin-bottom: 8px;
+        }
+
+        .result-item.success {
+            background: #d5f5e3;
+            border-left: 4px solid #27ae60;
+        }
+
+        .result-item.error {
+            background: #fadbd8;
+            border-left: 4px solid #e74c3c;
+        }
+
+        .result-item .result-icon {
+            font-size: 18px;
+            flex-shrink: 0;
+        }
+
+        .result-item.success .result-icon {
+            color: #27ae60;
+        }
+
+        .result-item.error .result-icon {
+            color: #e74c3c;
+        }
+
+        .result-item .result-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .result-item .result-name {
+            font-size: 13px;
+            font-weight: 600;
+            color: #2c3e50;
+            word-wrap: break-word;
+        }
+
+        .result-item .result-detail {
+            font-size: 11px;
+            color: #7f8c8d;
+            margin-top: 2px;
+        }
+
+        .result-item .result-actions {
+            flex-shrink: 0;
+        }
+
+        .btn-download {
+            background: #8e44ad;
+            color: white;
+            padding: 6px 14px;
+            border: none;
+            border-radius: 6px;
+            font-size: 12px;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            transition: all 0.2s;
+        }
+
+        .btn-download:hover {
+            background: #6c3483;
+            transform: translateY(-1px);
+        }
+
+        /* Фильтры */
+        .filter-row {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 14px;
+            flex-wrap: wrap;
+        }
+
+        .filter-btn {
+            padding: 6px 14px;
+            border: 2px solid #e8e8e8;
+            border-radius: 20px;
+            background: white;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+            color: #7f8c8d;
+            font-weight: 600;
+        }
+
+        .filter-btn:hover {
+            border-color: #8e44ad;
+            color: #8e44ad;
+        }
+
+        .filter-btn.active {
+            border-color: #8e44ad;
+            background: #8e44ad;
+            color: white;
+        }
+
+        /* ══════════════════════════════════════════════
+           ФАЙЛЫ — СПИСОК СКАЧИВАНИЯ
+           ══════════════════════════════════════════════ */
+        .files-section {
+            margin-top: 24px;
+            border-top: 2px solid #ecf0f1;
+            padding-top: 20px;
+        }
+
+        .files-section h3 {
+            font-size: 16px;
+            color: #2c3e50;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .file-download-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 14px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            margin-bottom: 6px;
+            transition: all 0.2s;
+        }
+
+        .file-download-item:hover {
+            background: #f3e8ff;
+        }
+
+        .file-download-item .file-dl-icon {
+            color: #8e44ad;
+            font-size: 20px;
+            flex-shrink: 0;
+        }
+
+        .file-download-item .file-dl-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .file-download-item .file-dl-name {
+            font-size: 13px;
+            font-weight: 600;
+            color: #2c3e50;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .file-download-item .file-dl-size {
+            font-size: 11px;
+            color: #95a5a6;
         }
     </style>
 </head>
 <body>
     <div class="container">
         <header>
-            <h1><i class="fas fa-file-upload"></i> Загрузка PDF и Excel файлов</h1>
+            <h1><i class="fas fa-file-upload"></i> Загрузка файлов и генерация приказов</h1>
             <p class="description">
-                Выберите тип файлов для загрузки: PDF для сканированных документов или Excel для учебных планов.
-                Excel файлы загружаются в MinIO хранилище для последующей обработки.
+                Выберите тип файлов для загрузки: PDF для сканированных документов, Excel для учебных планов,
+                или сгенерируйте приказы о переаттестации в формате Word.
             </p>
         </header>
 
-        <!-- Табы -->
+        <!-- ═══ ТАБЫ ═══ -->
         <div class="tabs">
             <button class="tab active" data-tab="pdf">
                 <i class="fas fa-file-pdf"></i> PDF файлы
@@ -496,9 +956,12 @@
             <button class="tab" data-tab="excel">
                 <i class="fas fa-file-excel"></i> Excel файлы
             </button>
+            <button class="tab" data-tab="orders">
+                <i class="fas fa-file-word"></i> Приказы
+            </button>
         </div>
 
-        <!-- Контент PDF таба -->
+        <!-- ═══ КОНТЕНТ PDF ═══ -->
         <div id="pdf-tab" class="tab-content active">
             <div class="filename-hint">
                 <i class="fas fa-info-circle"></i>
@@ -535,7 +998,7 @@
             </div>
         </div>
 
-        <!-- Контент Excel таба -->
+        <!-- ═══ КОНТЕНТ EXCEL ═══ -->
         <div id="excel-tab" class="tab-content">
             <div class="minio-hint">
                 <i class="fas fa-cloud"></i>
@@ -573,12 +1036,90 @@
             </div>
         </div>
 
-        <!-- Счетчик файлов -->
+        <!-- ═══ КОНТЕНТ ПРИКАЗОВ ═══ -->
+        <div id="orders-tab" class="tab-content">
+            <div class="orders-hint">
+                <i class="fas fa-gavel"></i>
+                <div>
+                    <strong>Генерация приказов:</strong> Выберите направления подготовки, для которых нужно
+                    сгенерировать приказы о переаттестации в формате Word. После генерации файлы можно скачать.
+                </div>
+            </div>
+
+            <!-- Фильтры -->
+            <div class="filter-row">
+                <button class="filter-btn active" data-filter="all" onclick="filterDirections('all')">
+                    Все
+                </button>
+                <button class="filter-btn" data-filter="new" onclick="filterDirections('new')">
+                    <i class="fas fa-sparkles"></i> Новые
+                </button>
+                <button class="filter-btn" data-filter="used" onclick="filterDirections('used')">
+                    <i class="fas fa-check"></i> Сгенерированные
+                </button>
+                <button class="btn btn-outline btn-small" onclick="loadDirections()" style="margin-left: auto;">
+                    <i class="fas fa-sync-alt"></i> Обновить
+                </button>
+            </div>
+
+            <!-- Контролы выбора -->
+            <div class="select-controls" id="select-controls" style="display:none;">
+                <button class="btn btn-secondary btn-small" onclick="selectAll()">
+                    <i class="fas fa-check-double"></i> Выбрать все
+                </button>
+                <button class="btn btn-secondary btn-small" onclick="deselectAll()">
+                    <i class="fas fa-times"></i> Снять все
+                </button>
+                <button class="btn btn-secondary btn-small" onclick="selectNew()">
+                    <i class="fas fa-star"></i> Только новые
+                </button>
+                <span class="selected-count" id="selected-count">Выбрано: 0</span>
+            </div>
+
+            <!-- Список направлений -->
+            <div class="directions-list" id="directions-list">
+                <div class="directions-loading">
+                    <i class="fas fa-spinner fa-spin"></i>
+                    <p>Загрузка направлений...</p>
+                </div>
+            </div>
+
+            <div class="progress-container" id="orders-progress-container">
+                <div class="progress-bar">
+                    <div class="progress-fill orders" id="orders-progress-fill"></div>
+                </div>
+                <div class="progress-text" id="orders-progress-text">Генерация приказов...</div>
+            </div>
+
+            <div id="orders-status" class="status-message"></div>
+
+            <!-- Результаты генерации -->
+            <div class="generation-results" id="generation-results"></div>
+
+            <div class="process-buttons">
+                <button class="btn btn-primary orders btn-large" onclick="generateOrders()" id="orders-process-btn">
+                    <i class="fas fa-file-word"></i> Сгенерировать приказы
+                </button>
+            </div>
+
+            <!-- Секция файлов -->
+            <div class="files-section" id="files-section" style="display:none;">
+                <h3>
+                    <i class="fas fa-download"></i> Сгенерированные файлы
+                    <button class="btn btn-outline btn-small" onclick="loadFiles()" style="margin-left:auto;">
+                        <i class="fas fa-sync-alt"></i>
+                    </button>
+                </h3>
+                <div id="files-list"></div>
+            </div>
+        </div>
+
+        <!-- ═══ СЧЕТЧИК ФАЙЛОВ ═══ -->
         <div class="file-counter" id="file-counter" onclick="showModal()">
             <span id="counter">0</span>
         </div>
 
-        <!-- Модальное окно -->
+        <!-- ═══ МОДАЛЬНОЕ ОКНО ═══ -->
         <div class="modal-overlay" id="modal-overlay">
             <div class="modal">
                 <div class="modal-header" id="modal-header">
@@ -603,10 +1144,15 @@
     </div>
 
     <script>
-        // Глобальные переменные
+        // ══════════════════════════════════════════════
+        //  ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ
+        // ══════════════════════════════════════════════
         let pdfFiles = [];
         let excelFiles = [];
         let currentTab = 'pdf';
+        let directionsData = [];
+        let selectedDirectionIds = new Set();
+        let currentFilter = 'all';
 
         // Конфигурация API
         const API_CONFIG = {
@@ -616,22 +1162,57 @@
                 accept: '.pdf'
             },
             excel: {
-                // Новый сервис загрузки в MinIO
                 url: 'http://localhost:8003/api/upload-excel',
                 maxSize: null,
                 accept: '.xlsx'
+            },
+            orders: {
+                base: 'http://localhost:8007/api',
+                directions: 'http://localhost:8007/api/directions',
+                generate: 'http://localhost:8007/api/generate',
+                generateAll: 'http://localhost:8007/api/generate-all',
+                files: 'http://localhost:8007/api/files',
+                download: 'http://localhost:8007/api/download',
+                reset: 'http://localhost:8007/api/directions',  // + /{id}/reset
             }
         };
 
-        // Утилита: извлечь числовой префикс
+        // ══════════════════════════════════════════════
+        //  УТИЛИТЫ
+        // ══════════════════════════════════════════════
         function extractPrefix(filename) {
             const base = filename.replace(/\.[^/.]+$/, '');
             const match = base.match(/^(\d+)/);
             return match ? match[1] : null;
         }
 
-        // Инициализация
-        document.addEventListener('DOMContentLoaded', function() {
+        function showStatus(type, message, status) {
+            const statusElement = document.getElementById(`${type}-status`);
+            statusElement.textContent = message;
+            statusElement.className = `status-message status-${status}`;
+            setTimeout(() => {
+                statusElement.className = 'status-message';
+            }, 12000);
+        }
+
+        function showProgress(type, show, percent = 0, text = '') {
+            const progressContainer = document.getElementById(`${type}-progress-container`);
+            const progressFill = document.getElementById(`${type}-progress-fill`);
+            const progressText = document.getElementById(`${type}-progress-text`);
+
+            if (show) {
+                progressContainer.style.display = 'block';
+                progressFill.style.width = percent + '%';
+                if (text) progressText.textContent = text;
+            } else {
+                progressContainer.style.display = 'none';
+            }
+        }
+
+        // ══════════════════════════════════════════════
+        //  ИНИЦИАЛИЗАЦИЯ
+        // ══════════════════════════════════════════════
+        document.addEventListener('DOMContentLoaded', function () {
             initTabs();
             initUploadAreas();
             updateFileCounter();
@@ -640,7 +1221,7 @@
         function initTabs() {
             const tabs = document.querySelectorAll('.tab');
             tabs.forEach(tab => {
-                tab.addEventListener('click', function() {
+                tab.addEventListener('click', function () {
                     const tabId = this.getAttribute('data-tab');
                     tabs.forEach(t => t.classList.remove('active'));
                     this.classList.add('active');
@@ -654,6 +1235,11 @@
                     document.querySelectorAll('.status-message').forEach(el => {
                         el.className = 'status-message';
                     });
+
+                    // Загружаем направления при первом переходе на таб
+                    if (tabId === 'orders' && directionsData.length === 0) {
+                        loadDirections();
+                    }
                 });
             });
         }
@@ -695,7 +1281,9 @@
             });
         }
 
-        // Обработка PDF файлов
+        // ══════════════════════════════════════════════
+        //  PDF — ОБРАБОТКА
+        // ══════════════════════════════════════════════
         function handlePdfFiles(files) {
             const config = API_CONFIG.pdf;
             const validFiles = [];
@@ -703,21 +1291,18 @@
 
             files.forEach(file => {
                 if (file.size > config.maxSize) {
-                    invalidFiles.push({file, reason: `Размер превышает ${config.maxSize / (1024*1024)} MB`});
+                    invalidFiles.push({ file, reason: `Размер превышает ${config.maxSize / (1024 * 1024)} MB` });
                 } else if (!file.type.includes('pdf') && !file.name.toLowerCase().endsWith('.pdf')) {
-                    invalidFiles.push({file, reason: 'Не PDF файл'});
+                    invalidFiles.push({ file, reason: 'Не PDF файл' });
                 } else if (!extractPrefix(file.name)) {
-                    invalidFiles.push({file, reason: 'Имя не начинается с числового префикса (ожидается 0001_...pdf)'});
+                    invalidFiles.push({ file, reason: 'Имя не начинается с числового префикса' });
                 } else if (pdfFiles.some(f => f.name === file.name && f.size === file.size)) {
-                    invalidFiles.push({file, reason: 'Файл уже добавлен'});
+                    invalidFiles.push({ file, reason: 'Файл уже добавлен' });
                 } else {
                     const prefix = extractPrefix(file.name);
                     const duplicate = pdfFiles.find(f => extractPrefix(f.name) === prefix);
                     if (duplicate) {
-                        invalidFiles.push({
-                            file,
-                            reason: `Префикс "${prefix}" уже используется файлом "${duplicate.name}"`
-                        });
+                        invalidFiles.push({ file, reason: `Префикс "${prefix}" уже используется файлом "${duplicate.name}"` });
                     } else {
                         validFiles.push(file);
                     }
@@ -728,18 +1313,12 @@
 
             if (invalidFiles.length > 0) {
                 let errorMsg = `Не добавлено файлов: ${invalidFiles.length}\n`;
-                invalidFiles.forEach(item => {
-                    errorMsg += `• ${item.file.name}: ${item.reason}\n`;
-                });
+                invalidFiles.forEach(item => { errorMsg += `• ${item.file.name}: ${item.reason}\n`; });
                 showStatus('pdf', errorMsg, 'error');
             }
-
             if (validFiles.length > 0) {
                 let successMsg = `Добавлено PDF файлов: ${validFiles.length}\n`;
-                validFiles.forEach(f => {
-                    const prefix = extractPrefix(f.name);
-                    successMsg += `• ${f.name} → ${prefix}.jpg\n`;
-                });
+                validFiles.forEach(f => { successMsg += `• ${f.name} → ${extractPrefix(f.name)}.jpg\n`; });
                 showStatus('pdf', successMsg, 'success');
             }
 
@@ -747,16 +1326,18 @@
             updateModalFileList();
         }
 
-        // Обработка Excel файлов
+        // ══════════════════════════════════════════════
+        //  EXCEL — ОБРАБОТКА
+        // ══════════════════════════════════════════════
         function handleExcelFiles(files) {
             const validFiles = [];
             const invalidFiles = [];
 
             files.forEach(file => {
                 if (!file.name.toLowerCase().endsWith('.xlsx')) {
-                    invalidFiles.push({file, reason: 'Не Excel файл (требуется .xlsx)'});
+                    invalidFiles.push({ file, reason: 'Не Excel файл' });
                 } else if (excelFiles.some(f => f.name === file.name && f.size === file.size)) {
-                    invalidFiles.push({file, reason: 'Файл уже добавлен'});
+                    invalidFiles.push({ file, reason: 'Файл уже добавлен' });
                 } else {
                     validFiles.push(file);
                 }
@@ -766,12 +1347,9 @@
 
             if (invalidFiles.length > 0) {
                 let errorMsg = `Не добавлено файлов: ${invalidFiles.length}\n`;
-                invalidFiles.forEach(item => {
-                    errorMsg += `• ${item.file.name}: ${item.reason}\n`;
-                });
+                invalidFiles.forEach(item => { errorMsg += `• ${item.file.name}: ${item.reason}\n`; });
                 showStatus('excel', errorMsg, 'error');
             }
-
             if (validFiles.length > 0) {
                 let successMsg = `Добавлено Excel файлов: ${validFiles.length}\n`;
                 validFiles.forEach(f => {
@@ -786,12 +1364,12 @@
             updateModalFileList();
         }
 
+        // ══════════════════════════════════════════════
+        //  ФАЙЛЫ — МОДАЛКА / СЧЁТЧИК
+        // ══════════════════════════════════════════════
         function removeFile(fileName, fileType) {
-            if (fileType === 'pdf') {
-                pdfFiles = pdfFiles.filter(file => file.name !== fileName);
-            } else if (fileType === 'excel') {
-                excelFiles = excelFiles.filter(file => file.name !== fileName);
-            }
+            if (fileType === 'pdf') pdfFiles = pdfFiles.filter(f => f.name !== fileName);
+            else if (fileType === 'excel') excelFiles = excelFiles.filter(f => f.name !== fileName);
             updateFileCounter();
             updateModalFileList();
         }
@@ -802,13 +1380,9 @@
             let totalFiles = 0;
             let fileType = '';
 
-            if (currentTab === 'pdf') {
-                totalFiles = pdfFiles.length;
-                fileType = 'pdf';
-            } else if (currentTab === 'excel') {
-                totalFiles = excelFiles.length;
-                fileType = 'excel';
-            }
+            if (currentTab === 'pdf') { totalFiles = pdfFiles.length; fileType = 'pdf'; }
+            else if (currentTab === 'excel') { totalFiles = excelFiles.length; fileType = 'excel'; }
+            else if (currentTab === 'orders') { totalFiles = selectedDirectionIds.size; fileType = 'orders'; }
 
             counter.textContent = totalFiles;
             counterElement.className = `file-counter ${fileType}`;
@@ -816,6 +1390,7 @@
         }
 
         function showModal() {
+            if (currentTab === 'orders') return; // Для приказов модалка не нужна
             updateModalFileList();
             document.getElementById('modal-overlay').classList.add('active');
         }
@@ -835,37 +1410,31 @@
             let fileType = '';
 
             if (currentTab === 'pdf') {
-                filesToShow = pdfFiles;
-                fileType = 'pdf';
+                filesToShow = pdfFiles; fileType = 'pdf';
                 modalHeader.className = 'modal-header pdf';
                 modalTitle.textContent = 'Выбранные PDF файлы';
             } else if (currentTab === 'excel') {
-                filesToShow = excelFiles;
-                fileType = 'excel';
+                filesToShow = excelFiles; fileType = 'excel';
                 modalHeader.className = 'modal-header excel';
                 modalTitle.textContent = 'Выбранные Excel файлы';
             }
 
             if (filesToShow.length === 0) {
-                fileList.innerHTML = '<p style="text-align: center; color: #7f8c8d;">Нет выбранных файлов</p>';
+                fileList.innerHTML = '<p style="text-align:center;color:#7f8c8d;">Нет выбранных файлов</p>';
                 return;
             }
 
             filesToShow.forEach(file => {
                 const fileSize = (file.size / (1024 * 1024)).toFixed(2);
                 const iconClass = fileType === 'pdf' ? 'fa-file-pdf' : 'fa-file-excel';
-
                 let extraInfo = '';
+
                 if (fileType === 'pdf') {
                     const prefix = extractPrefix(file.name);
-                    if (prefix) {
-                        extraInfo = `<span class="file-prefix-badge">→ ${prefix}.jpg</span>`;
-                    }
-                } else if (fileType === 'excel') {
+                    if (prefix) extraInfo = `<span class="file-prefix-badge">→ ${prefix}.jpg</span>`;
+                } else {
                     const prefix = extractPrefix(file.name);
-                    if (prefix) {
-                        extraInfo = `<span class="file-minio-badge">код: ${prefix}</span>`;
-                    }
+                    if (prefix) extraInfo = `<span class="file-minio-badge">код: ${prefix}</span>`;
                     extraInfo += `<span class="file-minio-badge" style="background:#17a2b8;">→ MinIO</span>`;
                 }
 
@@ -873,82 +1442,42 @@
                 fileItem.className = `file-item ${fileType}`;
                 fileItem.innerHTML = `
                     <div class="file-info">
-                        <div class="file-icon ${fileType}">
-                            <i class="fas ${iconClass}"></i>
-                        </div>
+                        <div class="file-icon ${fileType}"><i class="fas ${iconClass}"></i></div>
                         <div class="file-details">
                             <h4>${file.name} ${extraInfo}</h4>
                             <p>${fileSize} MB • ${fileType.toUpperCase()}</p>
                         </div>
                     </div>
-                    <button class="file-remove" onclick="removeFile('${file.name}', '${fileType}')">
+                    <button class="file-remove" onclick="removeFile('${file.name}','${fileType}')">
                         <i class="fas fa-times"></i>
-                    </button>
-                `;
+                    </button>`;
                 fileList.appendChild(fileItem);
             });
         }
 
         function clearAllFiles() {
-            if (currentTab === 'pdf') {
-                pdfFiles = [];
-                showStatus('pdf', 'Все PDF файлы удалены', 'info');
-            } else if (currentTab === 'excel') {
-                excelFiles = [];
-                showStatus('excel', 'Все Excel файлы удалены', 'info');
-            }
+            if (currentTab === 'pdf') { pdfFiles = []; showStatus('pdf', 'Все PDF файлы удалены', 'info'); }
+            else if (currentTab === 'excel') { excelFiles = []; showStatus('excel', 'Все Excel файлы удалены', 'info'); }
             updateFileCounter();
             updateModalFileList();
         }
 
-        function showStatus(type, message, status) {
-            const statusElement = document.getElementById(`${type}-status`);
-            statusElement.textContent = message;
-            statusElement.className = `status-message status-${status}`;
-            setTimeout(() => {
-                statusElement.className = 'status-message';
-            }, 8000);
-        }
-
-        function showProgress(type, show, percent = 0, text = '') {
-            const progressContainer = document.getElementById(`${type}-progress-container`);
-            const progressFill = document.getElementById(`${type}-progress-fill`);
-            const progressText = document.getElementById(`${type}-progress-text`);
-
-            if (show) {
-                progressContainer.style.display = 'block';
-                progressFill.style.width = percent + '%';
-                if (text) progressText.textContent = text;
-            } else {
-                progressContainer.style.display = 'none';
-            }
-        }
-
-        // ──────────────────────────────────────────────
-        // Отправка PDF файлов (без изменений)
-        // ──────────────────────────────────────────────
+        // ══════════════════════════════════════════════
+        //  ОТПРАВКА PDF
+        // ══════════════════════════════════════════════
         async function sendPdfFiles() {
-            if (pdfFiles.length === 0) {
-                showStatus('pdf', 'Нет файлов для отправки', 'error');
-                return;
-            }
+            if (pdfFiles.length === 0) { showStatus('pdf', 'Нет файлов для отправки', 'error'); return; }
 
             const processBtn = document.getElementById('pdf-process-btn');
             processBtn.disabled = true;
             showProgress('pdf', true, 0, 'Подготовка к отправке...');
 
             const formData = new FormData();
-            pdfFiles.forEach((file) => {
-                formData.append('files', file);
-            });
+            pdfFiles.forEach(file => formData.append('files', file));
 
             try {
                 showProgress('pdf', true, 30, 'Отправка файлов...');
-
-                const response = await fetch(API_CONFIG.pdf.url, {
-                    method: 'POST',
-                    body: formData
-                });
+                const response = await fetch(API_CONFIG.pdf.url, { method: 'POST', body: formData });
 
                 if (!response.ok) {
                     const errorData = await response.json();
@@ -959,24 +1488,18 @@
                 const result = await response.json();
 
                 let message = `✅ Обработка завершена!\n\n`;
-                message += `📊 Успешно обработано: ${result.processed} файлов\n`;
-                message += `❌ Не удалось обработать: ${result.failed} файлов\n\n`;
+                message += `📊 Успешно: ${result.processed} файлов\n`;
+                message += `❌ Ошибок: ${result.failed} файлов\n\n`;
 
                 if (result.results && result.results.length > 0) {
                     message += `📋 Результаты:\n`;
-                    result.results.forEach((res, index) => {
-                        message += `\n✅ ${index + 1}. ${res.pdf_name}\n`;
-                        message += `   • Префикс: ${res.extracted_prefix}\n`;
-                        message += `   • Сохранено как: ${res.image_object}\n`;
-                        message += `   • Бакет: ${res.bucket}\n`;
+                    result.results.forEach((res, i) => {
+                        message += `\n✅ ${i + 1}. ${res.pdf_name}\n   • Сохранено: ${res.image_object}\n`;
                     });
                 }
-
                 if (result.errors && result.errors.length > 0) {
                     message += `\n⚠️ Ошибки:\n`;
-                    result.errors.forEach(err => {
-                        message += `• ${err.filename || ''}: ${err.error || err}\n`;
-                    });
+                    result.errors.forEach(err => { message += `• ${err.filename || ''}: ${err.error || err}\n`; });
                 }
 
                 showProgress('pdf', true, 100, 'Готово!');
@@ -986,39 +1509,29 @@
                 updateModalFileList();
 
             } catch (error) {
-                showStatus('pdf', `❌ Ошибка обработки: ${error.message}`, 'error');
-                console.error('Ошибка:', error);
+                showStatus('pdf', `❌ Ошибка: ${error.message}`, 'error');
             } finally {
                 processBtn.disabled = false;
                 showProgress('pdf', false);
             }
         }
 
-        // ──────────────────────────────────────────────
-        // Отправка Excel файлов → загрузка в MinIO
-        // ──────────────────────────────────────────────
+        // ══════════════════════════════════════════════
+        //  ОТПРАВКА EXCEL
+        // ══════════════════════════════════════════════
         async function sendExcelFiles() {
-            if (excelFiles.length === 0) {
-                showStatus('excel', 'Нет файлов для отправки', 'error');
-                return;
-            }
+            if (excelFiles.length === 0) { showStatus('excel', 'Нет файлов для отправки', 'error'); return; }
 
             const processBtn = document.getElementById('excel-process-btn');
             processBtn.disabled = true;
-            showProgress('excel', true, 0, 'Подготовка к загрузке в MinIO...');
+            showProgress('excel', true, 0, 'Подготовка к загрузке...');
 
             const formData = new FormData();
-            excelFiles.forEach((file) => {
-                formData.append('files', file);
-            });
+            excelFiles.forEach(file => formData.append('files', file));
 
             try {
-                showProgress('excel', true, 30, 'Загрузка файлов в MinIO...');
-
-                const response = await fetch(API_CONFIG.excel.url, {
-                    method: 'POST',
-                    body: formData
-                });
+                showProgress('excel', true, 30, 'Загрузка в MinIO...');
+                const response = await fetch(API_CONFIG.excel.url, { method: 'POST', body: formData });
 
                 if (!response.ok) {
                     const errorData = await response.json();
@@ -1028,29 +1541,16 @@
                 showProgress('excel', true, 80, 'Обработка результатов...');
                 const result = await response.json();
 
-                let message = `✅ Загрузка в MinIO завершена!\n\n`;
-                message += `📊 Успешно загружено: ${result.processed} файлов\n`;
-                message += `❌ Не удалось загрузить: ${result.failed} файлов\n\n`;
+                let message = `✅ Загрузка завершена!\n\n`;
+                message += `📊 Успешно: ${result.processed} файлов\n❌ Ошибок: ${result.failed}\n\n`;
 
-                if (result.results && result.results.length > 0) {
-                    message += `📋 Результаты:\n`;
-                    result.results.forEach((res, index) => {
+                if (result.results) {
+                    result.results.forEach((res, i) => {
                         if (res.success) {
-                            const sizeMB = (res.size / (1024 * 1024)).toFixed(2);
-                            message += `\n✅ ${index + 1}. ${res.filename}\n`;
-                            message += `   • Объект в MinIO: ${res.object_name}\n`;
-                            message += `   • Бакет: ${res.bucket}\n`;
-                            message += `   • Размер: ${sizeMB} MB\n`;
+                            message += `✅ ${i + 1}. ${res.filename} → ${res.object_name}\n`;
                         } else {
-                            message += `\n❌ ${index + 1}. ${res.filename}: ${res.error}\n`;
+                            message += `❌ ${i + 1}. ${res.filename}: ${res.error}\n`;
                         }
-                    });
-                }
-
-                if (result.errors && result.errors.length > 0) {
-                    message += `\n⚠️ Ошибки:\n`;
-                    result.errors.forEach(err => {
-                        message += `• ${err}\n`;
                     });
                 }
 
@@ -1061,18 +1561,283 @@
                 updateModalFileList();
 
             } catch (error) {
-                showStatus('excel', `❌ Ошибка загрузки: ${error.message}`, 'error');
-                console.error('Ошибка:', error);
+                showStatus('excel', `❌ Ошибка: ${error.message}`, 'error');
             } finally {
                 processBtn.disabled = false;
                 showProgress('excel', false);
             }
         }
 
-        document.getElementById('modal-overlay').addEventListener('click', function(e) {
-            if (e.target === this) {
-                hideModal();
+        // ══════════════════════════════════════════════
+        //  ПРИКАЗЫ — ЗАГРУЗКА НАПРАВЛЕНИЙ
+        // ══════════════════════════════════════════════
+        async function loadDirections() {
+            const listContainer = document.getElementById('directions-list');
+            listContainer.innerHTML = `
+                <div class="directions-loading">
+                    <i class="fas fa-spinner fa-spin"></i>
+                    <p>Загрузка направлений...</p>
+                </div>`;
+
+            try {
+                const response = await fetch(API_CONFIG.orders.directions);
+                if (!response.ok) throw new Error(`Ошибка сервера: ${response.status}`);
+
+                const data = await response.json();
+                directionsData = data.directions || [];
+
+                if (directionsData.length === 0) {
+                    listContainer.innerHTML = `
+                        <div class="directions-empty">
+                            <i class="fas fa-inbox"></i>
+                            <p>Нет доступных направлений</p>
+                            <p style="font-size:12px;">Сначала загрузите и обработайте Excel файлы</p>
+                        </div>`;
+                    document.getElementById('select-controls').style.display = 'none';
+                    return;
+                }
+
+                document.getElementById('select-controls').style.display = 'flex';
+                renderDirections();
+                loadFiles();
+
+            } catch (error) {
+                listContainer.innerHTML = `
+                    <div class="directions-empty">
+                        <i class="fas fa-exclamation-triangle" style="color:#e74c3c;"></i>
+                        <p style="color:#e74c3c;">Ошибка загрузки: ${error.message}</p>
+                        <button class="btn btn-outline btn-small" onclick="loadDirections()" style="margin-top:12px;">
+                            <i class="fas fa-redo"></i> Повторить
+                        </button>
+                    </div>`;
             }
+        }
+
+        function renderDirections() {
+            const listContainer = document.getElementById('directions-list');
+            listContainer.innerHTML = '';
+
+            const filtered = directionsData.filter(d => {
+                if (currentFilter === 'new') return !d.is_used;
+                if (currentFilter === 'used') return d.is_used;
+                return true;
+            });
+
+            if (filtered.length === 0) {
+                listContainer.innerHTML = `
+                    <div class="directions-empty">
+                        <i class="fas fa-filter"></i>
+                        <p>Нет направлений для выбранного фильтра</p>
+                    </div>`;
+                return;
+            }
+
+            filtered.forEach(d => {
+                const card = document.createElement('div');
+                card.className = `direction-card${d.is_used ? ' used' : ''}${selectedDirectionIds.has(d.id) ? ' selected' : ''}`;
+                card.onclick = (e) => {
+                    if (e.target.type === 'checkbox') return;
+                    toggleDirection(d.id);
+                };
+
+                const badgeHtml = d.is_used
+                    ? '<span class="badge badge-used"><i class="fas fa-check"></i> Сгенерирован</span>'
+                    : '<span class="badge badge-new"><i class="fas fa-sparkles"></i> Новый</span>';
+
+                card.innerHTML = `
+                    <input type="checkbox" class="direction-checkbox"
+                           ${selectedDirectionIds.has(d.id) ? 'checked' : ''}
+                           onchange="toggleDirection(${d.id})">
+                    <div class="direction-info">
+                        <div class="direction-name">${d.name}</div>
+                        <div class="direction-meta">
+                            <span><i class="fas fa-users"></i> ${d.student_count} студентов</span>
+                            <span><i class="fas fa-hashtag"></i> ID: ${d.id}</span>
+                            ${badgeHtml}
+                        </div>
+                    </div>`;
+                listContainer.appendChild(card);
+            });
+
+            updateSelectedCount();
+        }
+
+        function toggleDirection(id) {
+            if (selectedDirectionIds.has(id)) {
+                selectedDirectionIds.delete(id);
+            } else {
+                selectedDirectionIds.add(id);
+            }
+            renderDirections();
+            updateFileCounter();
+        }
+
+        function selectAll() {
+            const filtered = directionsData.filter(d => {
+                if (currentFilter === 'new') return !d.is_used;
+                if (currentFilter === 'used') return d.is_used;
+                return true;
+            });
+            filtered.forEach(d => selectedDirectionIds.add(d.id));
+            renderDirections();
+            updateFileCounter();
+        }
+
+        function deselectAll() {
+            selectedDirectionIds.clear();
+            renderDirections();
+            updateFileCounter();
+        }
+
+        function selectNew() {
+            selectedDirectionIds.clear();
+            directionsData.filter(d => !d.is_used).forEach(d => selectedDirectionIds.add(d.id));
+            renderDirections();
+            updateFileCounter();
+        }
+
+        function updateSelectedCount() {
+            document.getElementById('selected-count').textContent = `Выбрано: ${selectedDirectionIds.size}`;
+        }
+
+        function filterDirections(filter) {
+            currentFilter = filter;
+            document.querySelectorAll('.filter-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.filter === filter);
+            });
+            renderDirections();
+        }
+
+        // ══════════════════════════════════════════════
+        //  ПРИКАЗЫ — ГЕНЕРАЦИЯ
+        // ══════════════════════════════════════════════
+        async function generateOrders() {
+            if (selectedDirectionIds.size === 0) {
+                showStatus('orders', 'Выберите хотя бы одно направление', 'error');
+                return;
+            }
+
+            const processBtn = document.getElementById('orders-process-btn');
+            processBtn.disabled = true;
+            showProgress('orders', true, 0, 'Подготовка к генерации...');
+
+            const resultsContainer = document.getElementById('generation-results');
+            resultsContainer.innerHTML = '';
+
+            try {
+                showProgress('orders', true, 20, `Генерация ${selectedDirectionIds.size} приказов...`);
+
+                const response = await fetch(API_CONFIG.orders.generate, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ direction_ids: Array.from(selectedDirectionIds) })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.detail || `Ошибка сервера: ${response.status}`);
+                }
+
+                showProgress('orders', true, 80, 'Обработка результатов...');
+                const result = await response.json();
+
+                // Рендерим результаты
+                let html = '';
+                if (result.generated && result.generated.length > 0) {
+                    result.generated.forEach(item => {
+                        if (item.success) {
+                            html += `
+                                <div class="result-item success">
+                                    <div class="result-icon"><i class="fas fa-check-circle"></i></div>
+                                    <div class="result-info">
+                                        <div class="result-name">${item.direction_name}</div>
+                                        <div class="result-detail">${item.filename}</div>
+                                    </div>
+                                    <div class="result-actions">
+                                        <a href="${API_CONFIG.orders.download}/${encodeURIComponent(item.filename)}"
+                                           class="btn-download" target="_blank">
+                                            <i class="fas fa-download"></i> Скачать
+                                        </a>
+                                    </div>
+                                </div>`;
+                        } else {
+                            html += `
+                                <div class="result-item error">
+                                    <div class="result-icon"><i class="fas fa-times-circle"></i></div>
+                                    <div class="result-info">
+                                        <div class="result-name">${item.direction_name}</div>
+                                        <div class="result-detail">${item.error}</div>
+                                    </div>
+                                </div>`;
+                        }
+                    });
+                }
+                resultsContainer.innerHTML = html;
+
+                showProgress('orders', true, 100, 'Готово!');
+
+                const msg = `✅ Генерация завершена!\n\n📊 Успешно: ${result.total_success}\n❌ Ошибок: ${result.total_errors}`;
+                showStatus('orders', msg, result.total_errors > 0 ? 'info' : 'success');
+
+                // Обновляем данные
+                selectedDirectionIds.clear();
+                updateFileCounter();
+                await loadDirections();
+
+            } catch (error) {
+                showStatus('orders', `❌ Ошибка генерации: ${error.message}`, 'error');
+            } finally {
+                processBtn.disabled = false;
+                showProgress('orders', false);
+            }
+        }
+
+        // ══════════════════════════════════════════════
+        //  ПРИКАЗЫ — СПИСОК ФАЙЛОВ
+        // ══════════════════════════════════════════════
+        async function loadFiles() {
+            try {
+                const response = await fetch(API_CONFIG.orders.files);
+                if (!response.ok) return;
+
+                const data = await response.json();
+                const filesSection = document.getElementById('files-section');
+                const filesList = document.getElementById('files-list');
+
+                if (!data.files || data.files.length === 0) {
+                    filesSection.style.display = 'none';
+                    return;
+                }
+
+                filesSection.style.display = 'block';
+                filesList.innerHTML = '';
+
+                data.files.forEach(file => {
+                    const item = document.createElement('div');
+                    item.className = 'file-download-item';
+                    item.innerHTML = `
+                        <div class="file-dl-icon"><i class="fas fa-file-word"></i></div>
+                        <div class="file-dl-info">
+                            <div class="file-dl-name">${file.filename}</div>
+                            <div class="file-dl-size">${file.size_kb} KB</div>
+                        </div>
+                        <a href="${API_CONFIG.orders.download}/${encodeURIComponent(file.filename)}"
+                           class="btn-download" target="_blank">
+                            <i class="fas fa-download"></i> Скачать
+                        </a>`;
+                    filesList.appendChild(item);
+                });
+
+            } catch (error) {
+                console.error('Ошибка загрузки файлов:', error);
+            }
+        }
+
+        // ══════════════════════════════════════════════
+        //  МОДАЛКА — ЗАКРЫТИЕ ПО ОВЕРЛЕЮ
+        // ══════════════════════════════════════════════
+        document.getElementById('modal-overlay').addEventListener('click', function (e) {
+            if (e.target === this) hideModal();
         });
     </script>
 </body>
