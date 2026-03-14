@@ -24,13 +24,14 @@ docker-compose up -d
 ## Service in project
 
 ```
-services:
+services-lite-version:
     postgres
-    kafka
-    kafka-ui
     minio
-    redis
-    pdf-processor
+    pdf-processor-lite
     ollama
-    ocr-worker
+    ocr-worker-lite
+    word-generator
+    xlsx-parser
+    xlsx-processor
+    llm-parser-service
 ```
