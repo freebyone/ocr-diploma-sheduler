@@ -7,36 +7,30 @@ import logging
 import traceback
 import sys
 from minio import Minio
-from minio.error import S3Error
+from minio.commonconfig import CopySource
 import json
 from typing import List, Dict, Any, Optional
 
-# Настройка логирования
+# --------------------------------------------------
+# LOGGING CONFIG
+# --------------------------------------------------
+
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(sys.stdout)
-    ]
+    format="%(asctime)s | %(levelname)s | %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)]
 )
 
 logger = logging.getLogger(__name__)
 
 
+# ==================================================
+# OCR PROCESSOR
+# ==================================================
+
 class OCRProcessor:
+
     def __init__(self):
-        # Проверка версии MinIO
-        try:
-            from importlib.metadata import version
-            minio_version = version("minio")
-            logger.info(f"MinIO library version: {minio_version}")
-        except Exception:
-            try:
-                import pkg_resources
-                minio_version = pkg_resources.get_distribution("minio").version
-                logger.info(f"MinIO library version: {minio_version}")
-            except Exception:
-                logger.warning("Could not determine MinIO version")
 
         self.minio_client = Minio(
             "minio:9000",
@@ -49,102 +43,121 @@ class OCRProcessor:
         self.model = "deepseek-ocr"
 
         self.source_bucket = "documents-lite"
+        self.retry_bucket = "retry"
         self.results_bucket = "results"
         self.errors_bucket = "errors"
 
+        self.sleep_interval = 30
+        self.retry_delay_between_files = 1
+
         self._ensure_buckets()
 
+    # ==================================================
+    # BUCKET INIT
+    # ==================================================
+
     def _ensure_buckets(self):
-        """Создаём бакеты если не существуют."""
-        for bucket in [self.source_bucket, self.results_bucket, self.errors_bucket]:
+        for bucket in [
+            self.source_bucket,
+            self.retry_bucket,
+            self.results_bucket,
+            self.errors_bucket
+        ]:
             try:
                 if not self.minio_client.bucket_exists(bucket):
                     self.minio_client.make_bucket(bucket)
                     logger.info(f"Created bucket: {bucket}")
             except Exception as e:
-                logger.error(f"Error ensuring bucket {bucket}: {e}")
+                logger.error(f"Bucket init error {bucket}: {e}")
+                raise
 
-    # ──────────────────────────────────────────────
-    # Работа с файлами в бакете (без папок)
-    # ──────────────────────────────────────────────
+    # ==================================================
+    # LIST FILES
+    # ==================================================
 
-    def list_images(self) -> List[str]:
-        """
-        Получает список всех .jpg файлов в source_bucket.
-        Возвращает список имён вида ['0001.jpg', '0102.jpg', ...]
-        """
+    def list_images(self, bucket_name: str) -> List[str]:
         images = []
         try:
-            objects = self.minio_client.list_objects(
-                self.source_bucket,
-                recursive=True
-            )
+            objects = self.minio_client.list_objects(bucket_name, recursive=False)
             for obj in objects:
-                name = obj.object_name
-                if name.lower().endswith('.jpg') and '/' not in name:
-                    images.append(name)
+                if obj.object_name.lower().endswith(".jpg"):
+                    images.append(obj.object_name)
         except Exception as e:
-            logger.error(f"Error listing images: {e}")
+            logger.error(f"List error in {bucket_name}: {e}")
         return images
 
-    def get_prefix_from_image(self, image_name: str) -> str:
-        """
-        Извлекает префикс из имени файла.
-        '0001.jpg' → '0001'
-        """
-        return os.path.splitext(image_name)[0]
+    # ==================================================
+    # FILE OPERATIONS
+    # ==================================================
 
-    def download_image(self, image_name: str) -> Optional[str]:
-        """Скачивает изображение из MinIO во временный файл."""
+    def download_image(self, bucket: str, name: str) -> Optional[str]:
         try:
-            temp_file = tempfile.NamedTemporaryFile(suffix='.jpg', delete=False)
-            temp_path = temp_file.name
-            temp_file.close()
+            temp = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
+            temp_path = temp.name
+            temp.close()
 
-            self.minio_client.fget_object(self.source_bucket, image_name, temp_path)
+            self.minio_client.fget_object(bucket, name, temp_path)
             return temp_path
         except Exception as e:
-            logger.error(f"Error downloading {image_name}: {e}")
+            logger.error(f"Download error {bucket}/{name}: {e}")
             return None
 
-    def delete_image_from_source(self, image_name: str) -> bool:
-        """Удаляет одно изображение из source_bucket."""
+    def delete_object(self, bucket: str, name: str):
         try:
-            self.minio_client.remove_object(self.source_bucket, image_name)
-            logger.info(f"Deleted from source: {image_name}")
-            return True
+            self.minio_client.remove_object(bucket, name)
+            logger.info(f"Deleted {bucket}/{name}")
         except Exception as e:
-            logger.error(f"Error deleting {image_name} from source: {e}")
+            logger.error(f"Delete error {bucket}/{name}: {e}")
+
+    def move_object(self, source_bucket: str, target_bucket: str, name: str) -> bool:
+        """
+        Безопасное перемещение:
+        1. Copy
+        2. Проверка что объект появился
+        3. Remove source
+        """
+        try:
+            copy_source = CopySource(source_bucket, name)
+
+            # Копируем
+            self.minio_client.copy_object(
+                target_bucket,
+                name,
+                copy_source
+            )
+
+            # Проверяем что файл реально существует в target
+            self.minio_client.stat_object(target_bucket, name)
+
+            # Удаляем из source
+            self.minio_client.remove_object(source_bucket, name)
+
+            logger.info(f"Moved {name} {source_bucket} → {target_bucket}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Move error {source_bucket}/{name}: {e}")
+            logger.error(traceback.format_exc())
             return False
 
-    # ──────────────────────────────────────────────
-    # OCR обработка одного изображения через Ollama
-    # ──────────────────────────────────────────────
+    # ==================================================
+    # OCR CALL
+    # ==================================================
 
-    def ocr_image(self, image_name: str) -> Dict[str, Any]:
-        """
-        Скачивает изображение, отправляет в Ollama OCR,
-        возвращает результат.
-        """
-        local_path = self.download_image(image_name)
+    def ocr_image(self, bucket: str, name: str) -> Dict[str, Any]:
+
+        local_path = self.download_image(bucket, name)
         if not local_path:
-            return {
-                "image": image_name,
-                "error": "Failed to download image",
-                "status": "error",
-                "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
-            }
+            return {"status": "error", "error": "download_failed"}
 
         try:
-            with open(local_path, "rb") as image_file:
-                base64_image = base64.b64encode(image_file.read()).decode('utf-8')
-
-            prompt = "Convert the document to txt format."
+            with open(local_path, "rb") as f:
+                image_b64 = base64.b64encode(f.read()).decode()
 
             payload = {
                 "model": self.model,
-                "prompt": prompt,
-                "images": [base64_image],
+                "prompt": "Convert the document to txt format.",
+                "images": [image_b64],
                 "stream": False,
                 "options": {
                     "temperature": 0.1,
@@ -152,288 +165,172 @@ class OCRProcessor:
                 }
             }
 
-            logger.info(f"Sending to Ollama: {image_name}")
-            start_time = time.time()
+            start = time.time()
 
             response = requests.post(
                 self.ollama_url,
                 json=payload,
-                timeout=600,
-                headers={"Content-Type": "application/json"}
+                timeout=600
             )
 
-            elapsed = time.time() - start_time
+            elapsed = time.time() - start
 
-            if response.status_code == 200:
-                result = response.json()
-
-                done_reason = result.get('done_reason', 'unknown')
-                ocr_text = result.get('response', '').strip()
-
-                status = "success" if done_reason == 'stop' else "partial"
-
-                logger.info(
-                    f"{'Success' if status == 'success' else 'Partial'} in {elapsed:.1f}s "
-                    f"(reason: {done_reason}), text length: {len(ocr_text)}"
-                )
-
+            if response.status_code != 200:
                 return {
-                    "image": image_name,
-                    "ocr_text": ocr_text,
-                    "processing_time": elapsed,
-                    "model": self.model,
-                    "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-                    "done_reason": done_reason,
-                    "eval_count": result.get('eval_count', 0),
-                    "total_duration": result.get('total_duration', 0),
-                    "status": status
+                    "status": "error",
+                    "error": f"http_{response.status_code}"
                 }
-            else:
-                logger.error(f"Ollama HTTP error: {response.status_code}")
-                return {
-                    "image": image_name,
-                    "error": f"HTTP {response.status_code}",
-                    "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-                    "status": "error"
-                }
+
+            result = response.json()
+
+            return {
+                "status": "success" if result.get("done_reason") == "stop" else "partial",
+                "ocr_text": result.get("response", "").strip(),
+                "done_reason": result.get("done_reason"),
+                "eval_count": result.get("eval_count"),
+                "total_duration": result.get("total_duration"),
+                "processing_time_sec": round(elapsed, 2)
+            }
 
         except requests.exceptions.Timeout:
-            logger.error(f"Timeout processing {image_name} after 600s")
-            return {
-                "image": image_name,
-                "error": "Timeout after 600 seconds",
-                "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-                "status": "error"
-            }
+            return {"status": "error", "error": "timeout_600s"}
         except Exception as e:
-            logger.error(f"Error processing {image_name}: {e}")
             logger.error(traceback.format_exc())
-            return {
-                "image": image_name,
-                "error": str(e),
-                "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-                "status": "error"
-            }
+            return {"status": "error", "error": str(e)}
         finally:
             if local_path and os.path.exists(local_path):
                 os.remove(local_path)
 
-    # ──────────────────────────────────────────────
-    # Сохранение результатов
-    # ──────────────────────────────────────────────
+    # ==================================================
+    # SAVE JSON WITH VERIFICATION
+    # ==================================================
 
-    def save_json_to_bucket(self, bucket_name: str, object_name: str, data: Dict) -> bool:
-        """
-        Сохраняет JSON в указанный бакет.
-        object_name — имя файла, например '0001.json'
-        """
-        temp_file_path = None
+    def save_json(self, bucket: str, name: str, data: Dict) -> bool:
+        temp_path = None
         try:
             with tempfile.NamedTemporaryFile(
-                mode='w', suffix='.json', encoding='utf-8', delete=False
-            ) as temp_file:
-                temp_file_path = temp_file.name
-                json.dump(data, temp_file, indent=2, ensure_ascii=False)
-                temp_file.flush()
-                os.fsync(temp_file.fileno())
+                mode="w",
+                encoding="utf-8",
+                suffix=".json",
+                delete=False
+            ) as tmp:
+                json.dump(data, tmp, indent=2, ensure_ascii=False)
+                temp_path = tmp.name
 
-            file_size = os.path.getsize(temp_file_path)
-            logger.info(f"JSON file size: {file_size / 1024:.2f} KB")
+            size = os.path.getsize(temp_path)
 
-            with open(temp_file_path, 'rb') as file_data:
+            with open(temp_path, "rb") as f:
                 self.minio_client.put_object(
-                    bucket_name,
-                    object_name,
-                    file_data,
-                    file_size,
-                    content_type="application/json; charset=utf-8"
+                    bucket,
+                    name,
+                    f,
+                    size,
+                    content_type="application/json"
                 )
 
-            logger.info(f"Saved to {bucket_name}/{object_name}")
+            # Проверяем размер
+            obj = self.minio_client.stat_object(bucket, name)
+            if obj.size != size:
+                logger.error(f"Size mismatch for {bucket}/{name}")
+                return False
 
-            # Верификация
-            self._verify_saved_file(bucket_name, object_name, file_size)
-
+            logger.info(f"Saved {bucket}/{name} ({size} bytes)")
             return True
 
         except Exception as e:
-            logger.error(f"Error saving to {bucket_name}/{object_name}: {e}")
+            logger.error(f"Save JSON error {bucket}/{name}: {e}")
             logger.error(traceback.format_exc())
             return False
+
         finally:
-            if temp_file_path and os.path.exists(temp_file_path):
-                try:
-                    os.remove(temp_file_path)
-                except Exception:
-                    pass
+            if temp_path and os.path.exists(temp_path):
+                os.remove(temp_path)
 
-    def _verify_saved_file(self, bucket: str, filename: str, expected_size: int) -> bool:
-        """Проверяет что файл загрузился корректно."""
-        try:
-            obj_info = self.minio_client.stat_object(bucket, filename)
-            actual_size = obj_info.size
+    # ==================================================
+    # PROCESS SINGLE FILE
+    # ==================================================
 
-            if actual_size == expected_size:
-                logger.info(f"File verification passed: {filename} ({actual_size} bytes)")
-                return True
-            else:
-                logger.error(
-                    f"File size mismatch for {filename}: "
-                    f"expected {expected_size}, got {actual_size}"
-                )
-                return False
-        except Exception as e:
-            logger.error(f"Error verifying file {filename}: {e}")
-            return False
+    def process_image(self, bucket: str, name: str):
 
-    # ──────────────────────────────────────────────
-    # Обработка одного изображения (полный цикл)
-    # ──────────────────────────────────────────────
-
-    def process_image(self, image_name: str) -> bool:
-        """
-        Полный цикл обработки одного изображения:
-        1. OCR через Ollama
-        2. Если done_reason == 'stop' → сохраняем в results/{prefix}.json
-        3. Иначе → сохраняем в errors/{prefix}.json
-        4. Удаляем исходный файл из documents
-        
-        Пример:
-            documents/0001.jpg
-            → OCR → results/0001.json (или errors/0001.json)
-            → удаляем documents/0001.jpg
-        """
-        prefix = self.get_prefix_from_image(image_name)
+        prefix = os.path.splitext(name)[0]
         json_name = f"{prefix}.json"
 
-        logger.info(f"=== Processing image: {image_name} (prefix: {prefix}) ===")
+        logger.info(f"Processing {bucket}/{name}")
 
-        # 1. OCR
-        result = self.ocr_image(image_name)
+        result = self.ocr_image(bucket, name)
 
-        # 2. Обёртка для сохранения
-        result_data = {
-            "prefix": prefix,
-            "source_image": image_name,
+        payload = {
+            "source_bucket": bucket,
+            "image": name,
             "processed_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "model": self.model,
             "result": result
         }
 
-        status = result.get("status", "error")
-        done_reason = result.get("done_reason", "unknown")
+        status = result.get("status")
+        done_reason = result.get("done_reason")
 
-        # 3. Определяем куда сохранять
+        # ✅ SUCCESS
         if status == "success" and done_reason == "stop":
-            # Всё хорошо → results
-            target_bucket = self.results_bucket
-            logger.info(f"✅ OCR successful (reason: stop) → saving to {target_bucket}/{json_name}")
-        else:
-            # Проблема → errors
-            target_bucket = self.errors_bucket
-            reason = result.get("error", f"done_reason={done_reason}, status={status}")
-            result_data["error_reason"] = reason
-            logger.warning(
-                f"⚠️ OCR issue for {image_name}: {reason} → saving to {target_bucket}/{json_name}"
-            )
-
-        # 4. Сохраняем JSON
-        save_success = self.save_json_to_bucket(target_bucket, json_name, result_data)
-
-        if save_success:
-            # 5. Удаляем исходный файл из documents
-            logger.info(f"Deleting source image: {image_name}")
-            self.delete_image_from_source(image_name)
-        else:
-            logger.error(f"Failed to save result for {image_name}, keeping source file")
-
-        return status == "success" and done_reason == "stop"
-
-    # ──────────────────────────────────────────────
-    # Главный цикл
-    # ──────────────────────────────────────────────
-
-    def run(self):
-        logger.info("=== Starting OCR Processor ===")
-
-        # Проверка подключения к MinIO
-        try:
-            buckets = self.minio_client.list_buckets()
-            logger.info(
-                f"Successfully connected to MinIO. "
-                f"Available buckets: {[b.name for b in buckets]}"
-            )
-        except Exception as e:
-            logger.error(f"Failed to connect to MinIO: {e}")
-            logger.error("Check if MinIO is running and credentials are correct")
+            if self.save_json(self.results_bucket, json_name, payload):
+                self.delete_object(bucket, name)
             return
 
-        logger.info(f"Source bucket: {self.source_bucket}")
-        logger.info(f"Results bucket: {self.results_bucket}")
-        logger.info(f"Errors bucket: {self.errors_bucket}")
-        logger.info("")
-        logger.info("File format: documents/0001.jpg → results/0001.json or errors/0001.json")
-        logger.info("")
-        logger.info("Rules:")
-        logger.info("  - done_reason: stop → results bucket (0001.json)")
-        logger.info("  - done_reason: length / error → errors bucket (0001.json)")
-        logger.info("  - Source image deleted after processing")
-        logger.info("")
-        logger.info("Waiting for images to process...")
+        # ⚠ FIRST FAILURE
+        if bucket == self.source_bucket:
+            logger.warning(f"First failure → retry/{name}")
+            moved = self.move_object(self.source_bucket, self.retry_bucket, name)
+            if not moved:
+                logger.error(f"CRITICAL: Failed to move {name} to retry")
+            return
+
+        # ❌ SECOND FAILURE
+        if bucket == self.retry_bucket:
+            logger.error(f"Second failure → errors/{json_name}")
+            if self.save_json(self.errors_bucket, json_name, payload):
+                self.delete_object(self.retry_bucket, name)
+            return
+
+    # ==================================================
+    # MAIN LOOP
+    # ==================================================
+
+    def run(self):
+
+        logger.info("=== OCR Processor STARTED (PRODUCTION MODE) ===")
 
         while True:
             try:
-                images = self.list_images()
+                docs = self.list_images(self.source_bucket)
 
-                if images:
-                    logger.info(f"Found {len(images)} images to process: {images}")
+                if docs:
+                    logger.info(f"{len(docs)} files in documents-lite")
+                    for name in docs:
+                        self.process_image(self.source_bucket, name)
+                        time.sleep(self.retry_delay_between_files)
+                else:
+                    retry_files = self.list_images(self.retry_bucket)
 
-                for image_name in images:
-                    try:
-                        self.process_image(image_name)
-                    except Exception as e:
-                        logger.error(f"Error processing {image_name}: {e}")
-                        logger.error(traceback.format_exc())
+                    if retry_files:
+                        logger.info(f"{len(retry_files)} files in retry")
+                        for name in retry_files:
+                            self.process_image(self.retry_bucket, name)
+                            time.sleep(self.retry_delay_between_files)
 
-                        # Пытаемся сохранить ошибку и удалить исходник
-                        try:
-                            prefix = self.get_prefix_from_image(image_name)
-                            error_data = {
-                                "prefix": prefix,
-                                "source_image": image_name,
-                                "processed_at": time.strftime("%Y-%m-%d %H:%M:%S"),
-                                "error_reason": str(e),
-                                "result": {
-                                    "image": image_name,
-                                    "error": str(e),
-                                    "status": "error",
-                                    "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
-                                }
-                            }
-                            self.save_json_to_bucket(
-                                self.errors_bucket,
-                                f"{prefix}.json",
-                                error_data
-                            )
-                            self.delete_image_from_source(image_name)
-                        except Exception as inner_e:
-                            logger.error(f"Error in error handling for {image_name}: {inner_e}")
-
-                    # Пауза между изображениями
-                    time.sleep(1)
-
-                if not images:
-                    logger.debug("No images found. Checking again in 30 seconds...")
-
-                time.sleep(30)
+                time.sleep(self.sleep_interval)
 
             except KeyboardInterrupt:
-                logger.info("Stopped by user")
+                logger.info("Stopped manually")
                 break
-            except Exception as e:
-                logger.error(f"Error in main loop: {e}")
+            except Exception:
+                logger.error("CRITICAL LOOP ERROR")
                 logger.error(traceback.format_exc())
-                time.sleep(30)
+                time.sleep(10)
 
+
+# ==================================================
+# ENTRYPOINT
+# ==================================================
 
 def main():
     processor = OCRProcessor()

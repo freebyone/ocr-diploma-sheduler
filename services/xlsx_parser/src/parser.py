@@ -101,6 +101,7 @@ def parse_title_sheet(filepath: str) -> dict:
                     val_clean
                     .replace('\n', ' ')
                     .replace('_x000D_', '')
+                    .replace('_x000d_', '')
                     .replace('\r', ' ')
                 ).strip()
             )
