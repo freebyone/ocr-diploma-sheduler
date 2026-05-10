@@ -298,6 +298,20 @@ services:
       retries: 3
       start_period: 15s
 
+  file-renamer:
+    build: ./services/file_renamer
+    container_name: file-renamer
+    ports:
+      - "8005:8005"
+    networks:
+      - network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8005/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
 volumes:
   postgres_data:
   kafka_data:
