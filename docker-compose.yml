@@ -195,11 +195,15 @@ services:
       - ./infrastructure/ollama_data:/root/.ollama
     deploy:
       resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
+        limits:
+          cpus: '4' # CPUS limit
+          memory: 16G # RAM limit
+        # GPU start settings
+        # reservations:
+        #   devices:
+        #     - driver: nvidia
+        #       count: all
+        #       capabilities: [gpu]
     entrypoint: ["/bin/sh", "-c"]
     command: |
       "
