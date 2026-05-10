@@ -69,7 +69,7 @@ services:
 
   minio-init:
     image: minio/mc:latest
-    container_name: xlsx-minio-init
+    container_name: ocr-minio-init
     depends_on:
       minio:
         condition: service_healthy
@@ -79,20 +79,15 @@ services:
       /bin/sh -c "
       echo 'Configuring MinIO...';
       sleep 3;
+
       mc alias set localminio http://minio:9000 ocrminio admin123456;
 
-      mc mb localminio/xlsx-documents --ignore-existing;
-      mc mb localminio/documents-lite --ignore-existing;
-      mc mb localminio/xlsx-results --ignore-existing;
-      mc mb localminio/xlsx-errors --ignore-existing;
+      mc mb localminio/documents --ignore-existing;
       mc mb localminio/templates --ignore-existing;
       mc mb localminio/results --ignore-existing;
       mc mb localminio/errors --ignore-existing;
 
-      mc anonymous set download localminio/xlsx-documents;
-      mc anonymous set download localminio/xlsx-results;
-      mc anonymous set download localminio/xlsx-errors;
-      mc anonymous set download localminio/documents-lite;
+      mc anonymous set download localminio/documents;
       mc anonymous set none localminio/templates;
       mc anonymous set none localminio/results;
       mc anonymous set none localminio/errors;
@@ -102,7 +97,7 @@ services:
       echo 'Creating policy...';
 
       echo '{
-        \"Version\": \"2025-10-17\",
+        \"Version\": \"2012-10-17\",
         \"Statement\": [{
           \"Effect\": \"Allow\",
           \"Action\": [
@@ -112,10 +107,7 @@ services:
             \"s3:ListBucket\"
           ],
           \"Resource\": [
-            \"arn:aws:s3:::xlsx-documents/*\",
-            \"arn:aws:s3:::xlsx-results/*\",
-            \"arn:aws:s3:::xlsx-errors/*\",
-            \"arn:aws:s3:::documents-lite/*\",
+            \"arn:aws:s3:::documents/*\",
             \"arn:aws:s3:::templates/*\",
             \"arn:aws:s3:::results/*\",
             \"arn:aws:s3:::errors/*\"
@@ -129,52 +121,6 @@ services:
       echo 'MinIO init complete';
       "
     restart: "no"
-  xlsx-parser:
-    build: ./services/xlsx_parser/
-    container_name: xlsx-parser
-    depends_on:
-      postgres:
-        condition: service_healthy
-      minio-init:
-        condition: service_completed_successfully
-    environment:
-      POSTGRES_HOST: postgres
-      POSTGRES_PORT: "5432"
-      POSTGRES_DB: ocr_db
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: 12345678
-      MINIO_ENDPOINT: minio:9000
-      MINIO_ACCESS_KEY: ocrminio
-      MINIO_SECRET_KEY: admin123456
-      MINIO_SECURE: "false"
-      MINIO_BUCKET: xlsx-documents
-      TEMP_DIR: /tmp/xlsx_processing
-    networks:
-      - network
-    restart: "no"
-
-  xlsx-processor:
-    build: ./services/xlsx_processor
-    container_name: excel-processor
-    depends_on:
-      minio-init:
-        condition: service_completed_successfully
-    environment:
-      MINIO_ENDPOINT: minio:9000
-      MINIO_ACCESS_KEY: ocrminio
-      MINIO_SECRET_KEY: admin123456
-      MINIO_SECURE: "false"
-      MINIO_BUCKET: xlsx-documents
-    ports:
-      - "8003:8003"
-    networks:
-      - network
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
 
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
@@ -205,30 +151,30 @@ services:
   #     - network
   #   restart: unless-stopped
 
-  # redis:
-  #   image: redis:7-alpine
-  #   container_name: ocr-redis
-  #   ports:
-  #     - "6379:6379"
-  #   command: redis-server --requirepass redis123
-  #   volumes:
-  #     - redis_data:/data
-  #   networks:
-  #     - network
-  #   restart: unless-stopped
+  redis:
+    image: redis:7-alpine
+    container_name: ocr-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --requirepass redis123
+    volumes:
+      - redis_data:/data
+    networks:
+      - network
+    restart: unless-stopped
 
-  pdf-processor-lite:
+  pdf-processor:
     build:
-      context: ./services/pdf_processor_lite/src
+      context: ./services/pdf_processor/src
       dockerfile: Dockerfile
-    container_name: ocr-pdf-processor-lite
+    container_name: ocr-pdf-processor
     ports:
       - "8000:8000"
     networks:
       - network
     volumes:
-      - ./services/pdf_processor_lite/src:/app
-      - ./services/pdf_processor_lite/src/logs:/app/logs
+      - ./services/pdf_processor/src:/app
+      - ./services/pdf_processor/src/logs:/app/logs
     depends_on:
       - minio
     restart: unless-stopped
@@ -239,7 +185,7 @@ services:
     ports:
       - "11434:11434"
     volumes:
-      - ./infrastructure/ollama_data:/root/.ollama
+      - ollama_data:/root/.ollama
     deploy:
       resources:
         reservations:
@@ -258,14 +204,14 @@ services:
     networks:
       - network
 
-  ocr-worker-lite:
-    build: ./services/ocr_worker_lite/
-    container_name: ocr-worker-lite
+  ocr-worker:
+    build: ./services/ocr_worker/
+    container_name: ocr-worker
     depends_on:
       - minio
       - ollama
     volumes:
-      - ./services/ocr_worker_lite/results:/app/results
+      - ./services/ocr_worker/results:/app/results
     networks:
       - network
     restart: unless-stopped
@@ -290,20 +236,7 @@ services:
     ports:
       - "8002:8002"
     environment:
-      POSTGRES_HOST: postgres
-      POSTGRES_PORT: "5432"
-      POSTGRES_DB: ocr_db
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: "12345678"
-      MINIO_ENDPOINT: minio:9000
-      MINIO_ACCESS_KEY: ocrminio
-      MINIO_SECRET_KEY: admin123456
-      MINIO_SECURE: "false"
-      MINIO_BUCKET: xlsx-documents
-      MINIO_ERRORS_BUCKET: xlsx-errors
-      MINIO_RESULTS_BUCKET: xlsx-results
-      POLL_INTERVAL: "30"
-      TEMP_DIR: /tmp/xlsx_processing
+      DB_URL: postgresql://postgres:12345678@postgres:5432/ocr_db
     volumes:
       - ./services/xlsx_processor:/app
     networks:
@@ -312,34 +245,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      minio-init:
-        condition: service_completed_successfully
-  word-service:
-    build: ./services/word_service
-    container_name: word-service
-    ports:
-      - "8007:8007"
-    environment:
-      POSTGRES_HOST: postgres
-      POSTGRES_PORT: "5432"
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: "12345678"
-      POSTGRES_DB: ocr_db
-      OUTPUT_DIR: /src/output_orders
-    volumes:
-      - word_output:/src/output_orders
-    depends_on:
-      postgres:
-        condition: service_healthy
-    networks:
-      - network
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8007/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 15s
 
 volumes:
   postgres_data:
@@ -347,7 +252,6 @@ volumes:
   minio_data:
   redis_data:
   ollama_data:
-  word_output:
 
 networks:
   network:

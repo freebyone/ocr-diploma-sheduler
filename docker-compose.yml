@@ -21,29 +21,6 @@ services:
       retries: 5
       start_period: 30s
 
-  kafka:
-    image: bitnamilegacy/kafka:4.0.0-debian-12-r10
-    container_name: ocr-kafka
-    ports:
-      - "9092:9092"
-      - "9093:9093"
-    environment:
-      KAFKA_CFG_NODE_ID: 1
-      KAFKA_CFG_PROCESS_ROLES: controller,broker
-      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
-      KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
-      KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
-      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
-      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
-      KAFKA_CFG_INTER_BROKER_LISTENER_NAME: PLAINTEXT
-      ALLOW_PLAINTEXT_LISTENER: "yes"
-      KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: "true"
-    volumes:
-      - kafka_data:/bitnami/kafka
-    networks:
-      - network
-    restart: unless-stopped
-
   minio:
     image: minio/minio:latest
     container_name: ocr-minio
@@ -68,74 +45,104 @@ services:
       start_period: 30s
 
   minio-init:
-    image: minio/mc:latest
-    container_name: ocr-minio-init
+    build: ./services/minio_init/
+    container_name: xlsx-minio-init
     depends_on:
       minio:
         condition: service_healthy
     networks:
       - network
-    entrypoint: >
-      /bin/sh -c "
-      echo 'Configuring MinIO...';
-      sleep 3;
-
-      mc alias set localminio http://minio:9000 ocrminio admin123456;
-
-      mc mb localminio/documents --ignore-existing;
-      mc mb localminio/templates --ignore-existing;
-      mc mb localminio/results --ignore-existing;
-      mc mb localminio/errors --ignore-existing;
-
-      mc anonymous set download localminio/documents;
-      mc anonymous set none localminio/templates;
-      mc anonymous set none localminio/results;
-      mc anonymous set none localminio/errors;
-
-      mc admin user add localminio appuser apppassword123 || true;
-
-      echo 'Creating policy...';
-
-      echo '{
-        \"Version\": \"2012-10-17\",
-        \"Statement\": [{
-          \"Effect\": \"Allow\",
-          \"Action\": [
-            \"s3:GetObject\",
-            \"s3:PutObject\",
-            \"s3:DeleteObject\",
-            \"s3:ListBucket\"
-          ],
-          \"Resource\": [
-            \"arn:aws:s3:::documents/*\",
-            \"arn:aws:s3:::templates/*\",
-            \"arn:aws:s3:::results/*\",
-            \"arn:aws:s3:::errors/*\"
-          ]
-        }]
-      }' > /tmp/readwrite.json;
-
-      mc admin policy create localminio readwrite /tmp/readwrite.json || true;
-      mc admin policy attach localminio readwrite --user appuser;
-
-      echo 'MinIO init complete';
-      "
+    environment:
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=ocrminio
+      - MINIO_SECRET_KEY=admin123456
+      - MINIO_SECURE=false
+      - INITIAL_DELAY=3
     restart: "no"
 
-  kafka-ui:
-    image: provectuslabs/kafka-ui:latest
-    container_name: ocr-kafka-ui
-    environment:
-      KAFKA_CLUSTERS_0_NAME: ocr-cluster
-      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
-    ports:
-      - "8080:8080"
+  xlsx-parser:
+    build: ./services/xlsx_parser/
+    container_name: xlsx-parser
     depends_on:
-      - kafka
+      postgres:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ocr_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 12345678
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ocrminio
+      MINIO_SECRET_KEY: admin123456
+      MINIO_SECURE: "false"
+      MINIO_BUCKET: xlsx-documents
+      TEMP_DIR: /tmp/xlsx_processing
+    networks:
+      - network
+    restart: "no"
+
+  xlsx-processor:
+    build: ./services/xlsx_processor
+    container_name: excel-processor
+    depends_on:
+      minio-init:
+        condition: service_completed_successfully
+    environment:
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ocrminio
+      MINIO_SECRET_KEY: admin123456
+      MINIO_SECURE: "false"
+      MINIO_BUCKET: xlsx-documents
+    ports:
+      - "8003:8003"
     networks:
       - network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
+  # kafka-ui:
+  #   image: provectuslabs/kafka-ui:latest
+  #   container_name: ocr-kafka-ui
+  #   environment:
+  #     KAFKA_CLUSTERS_0_NAME: ocr-cluster
+  #     KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+  #   ports:
+  #     - "8080:8080"
+  #   depends_on:
+  #     - kafka
+  #   networks:
+  #     - network
+  #   restart: unless-stopped
+
+  # kafka:
+  #   image: bitnamilegacy/kafka:4.0.0-debian-12-r10
+  #   container_name: ocr-kafka
+  #   ports:
+  #     - "9092:9092"
+  #     - "9093:9093"
+  #   environment:
+  #     KAFKA_CFG_NODE_ID: 1
+  #     KAFKA_CFG_PROCESS_ROLES: controller,broker
+  #     KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+  #     KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+  #     KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+  #     KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+  #     KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
+  #     KAFKA_CFG_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+  #     ALLOW_PLAINTEXT_LISTENER: "yes"
+  #     KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: "true"
+  #   volumes:
+  #     - kafka_data:/bitnami/kafka
+  #   networks:
+  #     - network
+  #   restart: unless-stopped
   # If need nginx loadbalancer
   # nginx:
   #   image: nginx:alpine
@@ -151,30 +158,30 @@ services:
   #     - network
   #   restart: unless-stopped
 
-  redis:
-    image: redis:7-alpine
-    container_name: ocr-redis
-    ports:
-      - "6379:6379"
-    command: redis-server --requirepass redis123
-    volumes:
-      - redis_data:/data
-    networks:
-      - network
-    restart: unless-stopped
+  # redis:
+  #   image: redis:7-alpine
+  #   container_name: ocr-redis
+  #   ports:
+  #     - "6379:6379"
+  #   command: redis-server --requirepass redis123
+  #   volumes:
+  #     - redis_data:/data
+  #   networks:
+  #     - network
+  #   restart: unless-stopped
 
-  pdf-processor:
+  pdf-processor-lite:
     build:
-      context: ./services/pdf_processor/src
+      context: ./services/pdf_processor_lite/src
       dockerfile: Dockerfile
-    container_name: ocr-pdf-processor
+    container_name: ocr-pdf-processor-lite
     ports:
       - "8000:8000"
     networks:
       - network
     volumes:
-      - ./services/pdf_processor/src:/app
-      - ./services/pdf_processor/src/logs:/app/logs
+      - ./services/pdf_processor_lite/src:/app
+      - ./services/pdf_processor_lite/src/logs:/app/logs
     depends_on:
       - minio
     restart: unless-stopped
@@ -185,7 +192,7 @@ services:
     ports:
       - "11434:11434"
     volumes:
-      - ollama_data:/root/.ollama
+      - ./infrastructure/ollama_data:/root/.ollama
     deploy:
       resources:
         reservations:
@@ -204,14 +211,14 @@ services:
     networks:
       - network
 
-  ocr-worker:
-    build: ./services/ocr_worker/
-    container_name: ocr-worker
+  ocr-worker-lite:
+    build: ./services/ocr_worker_lite/
+    container_name: ocr-worker-lite
     depends_on:
       - minio
       - ollama
     volumes:
-      - ./services/ocr_worker/results:/app/results
+      - ./services/ocr_worker_lite/results:/app/results
     networks:
       - network
     restart: unless-stopped
@@ -236,7 +243,20 @@ services:
     ports:
       - "8002:8002"
     environment:
-      DB_URL: postgresql://postgres:12345678@postgres:5432/ocr_db
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ocr_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: "12345678"
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ocrminio
+      MINIO_SECRET_KEY: admin123456
+      MINIO_SECURE: "false"
+      MINIO_BUCKET: xlsx-documents
+      MINIO_ERRORS_BUCKET: xlsx-errors
+      MINIO_RESULTS_BUCKET: xlsx-results
+      POLL_INTERVAL: "30"
+      TEMP_DIR: /tmp/xlsx_processing
     volumes:
       - ./services/xlsx_processor:/app
     networks:
@@ -245,6 +265,34 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+  word-service:
+    build: ./services/word_service
+    container_name: word-service
+    ports:
+      - "8007:8007"
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: "12345678"
+      POSTGRES_DB: ocr_db
+      OUTPUT_DIR: /src/output_orders
+    volumes:
+      - word_output:/src/output_orders
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8007/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
 
 volumes:
   postgres_data:
@@ -252,6 +300,7 @@ volumes:
   minio_data:
   redis_data:
   ollama_data:
+  word_output:
 
 networks:
   network:
