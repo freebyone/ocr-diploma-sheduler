@@ -298,19 +298,34 @@ services:
       retries: 3
       start_period: 15s
 
-  file-renamer:
-    build: ./services/file_renamer
-    container_name: file-renamer
+  unified-processor:
+    build: 
+      context: ./services/unified_processor
+    container_name: unified-processor
     ports:
       - "8005:8005"
+    environment:
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=ocrminio
+      - MINIO_SECRET_KEY=admin123456
+      - MINIO_SECURE=false
+    depends_on:
+      minio:
+        condition: service_healthy
     networks:
       - network
     restart: unless-stopped
+    # Ограничение ресурсов, чтобы 500+ файлов не "съели" весь сервер
+    deploy:
+      resources:
+        limits:
+          memory: 2G
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8005/health"]
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 10s
 
 volumes:
   postgres_data:
