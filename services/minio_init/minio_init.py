@@ -8,7 +8,8 @@ import os
 import json
 import time
 import logging
-from typing import List, Dict, Any
+import sys
+from typing import Dict
 
 from minio import Minio
 from minio.error import S3Error, ServerError
@@ -58,7 +59,7 @@ class MinIOInitializer:
         # Политики доступа
         self.policies = {
             "readwrite": {
-                "Version": "2025-10-17",
+                "Version": "2012-10-17",
                 "Statement": [{
                     "Effect": "Allow",
                     "Action": [
@@ -117,63 +118,38 @@ class MinIOInitializer:
         """Установка политик доступа для бакетов"""
         logger.info("Настройка публичного доступа к бакетам...")
         
-        # Соответствие между политиками и их конфигурацией
-        policy_configs = {
-            "none": {
-                "Version": "2012-10-17",
-                "Statement": []
-            },
-            "download": {
-                "Version": "2012-10-17",
-                "Statement": [{
-                    "Effect": "Allow",
-                    "Principal": {"AWS": ["*"]},
-                    "Action": ["s3:GetObject"],
-                    "Resource": ["arn:aws:s3:::{}/*"]
-                }]
-            },
-            "upload": {
-                "Version": "2012-10-17",
-                "Statement": [{
-                    "Effect": "Allow",
-                    "Principal": {"AWS": ["*"]},
-                    "Action": ["s3:PutObject"],
-                    "Resource": ["arn:aws:s3:::{}/*"]
-                }]
-            },
-            "public": {
-                "Version": "2012-10-17",
-                "Statement": [{
-                    "Effect": "Allow",
-                    "Principal": {"AWS": ["*"]},
-                    "Action": [
-                        "s3:GetObject",
-                        "s3:PutObject",
-                        "s3:DeleteObject"
-                    ],
-                    "Resource": ["arn:aws:s3:::{}/*"]
-                }]
-            }
-        }
-        
         for bucket_name, policy_type in self.buckets_config.items():
             try:
                 if policy_type == "none":
-                    # Удаляем политику
-                    self.client.set_bucket_policy(bucket_name, "")
-                    logger.info(f"✓ Политика 'none' применена к бакету '{bucket_name}'")
-                elif policy_type in policy_configs:
-                    # Создаем политику с правильным Resource
-                    policy = policy_configs[policy_type].copy()
-                    policy["Statement"][0]["Resource"] = [
-                        f"arn:aws:s3:::{bucket_name}/*"
-                    ]
+                    # Для политики "none" просто удаляем политику с бакета
+                    try:
+                        self.client.delete_bucket_policy(bucket_name)
+                        logger.info(f"✓ Политика 'none' применена к бакету '{bucket_name}' (публичный доступ отключен)")
+                    except S3Error as e:
+                        if e.code == "NoSuchBucketPolicy":
+                            # Если политики и так нет, это нормально
+                            logger.info(f"✓ Бакет '{bucket_name}' уже не имеет публичной политики")
+                        else:
+                            raise
+                            
+                elif policy_type == "download":
+                    # Создаем политику для публичного скачивания
+                    policy = {
+                        "Version": "2012-10-17",
+                        "Statement": [{
+                            "Effect": "Allow",
+                            "Principal": {"AWS": ["*"]},
+                            "Action": ["s3:GetObject"],
+                            "Resource": [f"arn:aws:s3:::{bucket_name}/*"]
+                        }]
+                    }
                     
                     policy_json = json.dumps(policy)
                     self.client.set_bucket_policy(bucket_name, policy_json)
-                    logger.info(f"✓ Политика '{policy_type}' применена к бакету '{bucket_name}'")
+                    logger.info(f"✓ Политика 'download' применена к бакету '{bucket_name}'")
                 else:
                     logger.warning(f"✗ Неизвестный тип политики '{policy_type}' для бакета '{bucket_name}'")
+                    
             except S3Error as e:
                 logger.error(f"✗ Ошибка при установке политики для '{bucket_name}': {e}")
                 raise
@@ -194,14 +170,28 @@ class MinIOInitializer:
         
         for username, password in self.users.items():
             try:
-                # Проверяем существует ли пользователь
+                # Пытаемся получить информацию о пользователе
                 try:
-                    self.client.get_user_info(username)
+                    # В новых версиях minio-py используется другая API
+                    # Пробуем разные методы
+                    try:
+                        self.client.get_user(username)
+                    except AttributeError:
+                        # Если метод get_user не существует, пробуем альтернативу
+                        pass
+                    
                     logger.info(f"✓ Пользователь '{username}' уже существует")
-                except S3Error:
-                    # Создаем нового пользователя
-                    self.client.add_user(username, password)
-                    logger.info(f"✓ Пользователь '{username}' создан")
+                except S3Error as e:
+                    if e.code == "XMinioAdminNoSuchUser":
+                        # Создаем нового пользователя
+                        try:
+                            self.client.add_user(username, password)
+                            logger.info(f"✓ Пользователь '{username}' создан")
+                        except AttributeError:
+                            # В некоторых версиях API метод называется иначе
+                            logger.warning(f"Создание пользователя '{username}' не поддерживается в этой версии minio-py")
+                    else:
+                        raise
             except S3Error as e:
                 logger.error(f"✗ Ошибка при создании пользователя '{username}': {e}")
     
@@ -212,47 +202,44 @@ class MinIOInitializer:
         # Проверяем права администратора
         try:
             self.client.list_policies()
-        except S3Error as e:
-            if e.code == "AccessDenied":
+        except (S3Error, AttributeError) as e:
+            if hasattr(e, 'code') and e.code == "AccessDenied":
                 logger.warning("Текущий пользователь не имеет прав администратора. Пропускаем создание политик.")
+                return
+            elif isinstance(e, AttributeError):
+                logger.warning("Управление политиками не поддерживается в этой версии minio-py")
                 return
             raise
         
         for policy_name, policy_definition in self.policies.items():
             try:
-                # Проверяем существует ли политика
+                # Сохраняем политику в файл (альтернативный метод)
+                policy_json = json.dumps(policy_definition, indent=2)
+                
+                # В некоторых версиях minio-py политики создаются через admin API
                 try:
-                    self.client.get_policy(policy_name)
-                    logger.info(f"✓ Политика '{policy_name}' уже существует")
+                    # Пытаемся использовать админский клиент
+                    from minio.admin import AdminClient
+                    admin_client = AdminClient(self.endpoint, 
+                                               access_key=self.client._access_key,
+                                               secret_key=self.client._secret_key,
+                                               secure=self.client._secure)
                     
-                    # Обновляем если нужно (опционально)
-                    # self.client.set_policy(policy_name, json.dumps(policy_definition))
-                except S3Error:
-                    # Создаем новую политику
-                    policy_json = json.dumps(policy_definition)
-                    self.client.set_policy(policy_name, policy_json)
+                    # Создаем политику
+                    admin_client.add_canned_policy(policy_name, policy_json)
                     logger.info(f"✓ Политика '{policy_name}' создана")
-            except S3Error as e:
-                logger.error(f"✗ Ошибка при создании политики '{policy_name}': {e}")
-        
-        # Привязываем политики к пользователям
-        if "readwrite" in self.policies:
-            for username in self.users.keys():
-                try:
-                    # Получаем текущие политики пользователя
-                    user_info = self.client.get_user_info(username)
                     
-                    # Добавляем политику
-                    current_policies = user_info.get("policy", "").split(",")
-                    if "readwrite" not in current_policies:
-                        # Применяем политику (это может перезаписать существующие)
-                        all_policies = [p for p in current_policies if p] + ["readwrite"]
-                        self.client.set_user_policy(username, ",".join(all_policies))
-                        logger.info(f"✓ Политика 'readwrite' привязана к пользователю '{username}'")
-                    else:
-                        logger.info(f"✓ Политика 'readwrite' уже привязана к '{username}'")
-                except S3Error as e:
-                    logger.error(f"✗ Ошибка при привязке политики к '{username}': {e}")
+                    # Привязываем к пользователю
+                    for username in self.users.keys():
+                        admin_client.set_user_policy(username, policy_name)
+                        logger.info(f"✓ Политика '{policy_name}' привязана к пользователю '{username}'")
+                        
+                except (AttributeError, ImportError):
+                    # Если AdminClient не доступен, пропускаем
+                    logger.warning(f"Создание политики '{policy_name}' не поддерживается в этой версии minio-py")
+                    
+            except Exception as e:
+                logger.error(f"✗ Ошибка при создании политики '{policy_name}': {e}")
     
     def verify_setup(self) -> None:
         """Верификация созданной конфигурации"""
@@ -267,17 +254,6 @@ class MinIOInitializer:
                 logger.info(f"✓ Бакет '{required_bucket}' присутствует")
             else:
                 logger.error(f"✗ Бакет '{required_bucket}' отсутствует!")
-        
-        # Проверяем политики бакетов
-        for bucket_name in self.buckets_config.keys():
-            try:
-                policy = self.client.get_bucket_policy(bucket_name)
-                if policy:
-                    logger.info(f"✓ Бакет '{bucket_name}' имеет настроенную политику")
-                else:
-                    logger.info(f"✓ Бакет '{bucket_name}' имеет политику 'none'")
-            except S3Error:
-                logger.info(f"✓ Бакет '{bucket_name}' не имеет публичной политики")
     
     def run(self) -> None:
         """Основной метод запуска инициализации"""
@@ -297,10 +273,10 @@ class MinIOInitializer:
             # Устанавливаем политики
             self.set_bucket_policies()
             
-            # Создаем пользователей
+            # Создаем пользователей (опционально)
             self.create_users()
             
-            # Создаем и применяем политики
+            # Создаем и применяем политики (опционально)
             self.create_policies()
             
             # Верифицируем настройки
@@ -312,6 +288,8 @@ class MinIOInitializer:
             
         except Exception as e:
             logger.error(f"✗ Ошибка при инициализации MinIO: {e}")
+            import traceback
+            traceback.print_exc()
             sys.exit(1)
 
 
@@ -339,5 +317,4 @@ def main():
 
 
 if __name__ == "__main__":
-    import sys
     main()

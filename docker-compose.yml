@@ -46,7 +46,7 @@ services:
 
   minio-init:
     build: ./services/minio_init/
-    container_name: xlsx-minio-init
+    container_name: minio-init
     depends_on:
       minio:
         condition: service_healthy
@@ -83,29 +83,6 @@ services:
     networks:
       - network
     restart: "no"
-
-  xlsx-processor:
-    build: ./services/xlsx_processor
-    container_name: excel-processor
-    depends_on:
-      minio-init:
-        condition: service_completed_successfully
-    environment:
-      MINIO_ENDPOINT: minio:9000
-      MINIO_ACCESS_KEY: ocrminio
-      MINIO_SECRET_KEY: admin123456
-      MINIO_SECURE: "false"
-      MINIO_BUCKET: xlsx-documents
-    ports:
-      - "8003:8003"
-    networks:
-      - network
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
 
   # kafka-ui:
   #   image: provectuslabs/kafka-ui:latest
@@ -169,22 +146,6 @@ services:
   #   networks:
   #     - network
   #   restart: unless-stopped
-
-  pdf-processor-lite:
-    build:
-      context: ./services/pdf_processor_lite/src
-      dockerfile: Dockerfile
-    container_name: ocr-pdf-processor-lite
-    ports:
-      - "8000:8000"
-    networks:
-      - network
-    volumes:
-      - ./services/pdf_processor_lite/src:/app
-      - ./services/pdf_processor_lite/src/logs:/app/logs
-    depends_on:
-      - minio
-    restart: unless-stopped
 
   ollama:
     image: ollama/ollama:latest
@@ -315,7 +276,7 @@ services:
     networks:
       - network
     restart: unless-stopped
-    # Ограничение ресурсов, чтобы 500+ файлов не "съели" весь сервер
+    # Ограничение ресурсов для стабильной обработки 500+ файлов
     deploy:
       resources:
         limits:
@@ -325,7 +286,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 10s
+      start_period: 15s
 
 volumes:
   postgres_data:
