@@ -9,8 +9,8 @@ logger = logging.getLogger(__name__)
 
 DATABASE_URL = (
     f"postgresql://"
-    f"{os.getenv('DB_USER', 'counter_user')}:"
-    f"{os.getenv('DB_PASSWORD', 'norma_password')}@"
+    f"{os.getenv('DB_USER', 'postgres')}:"
+    f"{os.getenv('DB_PASSWORD', '12345678')}@"
     f"{os.getenv('DB_HOST', 'postgres')}:"
     f"{os.getenv('DB_PORT', '5432')}/"
     f"{os.getenv('DB_NAME', 'counter_db')}"
