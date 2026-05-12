@@ -9,10 +9,19 @@ import json
 import time
 import logging
 import sys
-from typing import Dict
+from typing import Dict, Optional
 
 from minio import Minio
 from minio.error import S3Error, ServerError
+
+# Пытаемся импортировать AdminClient
+try:
+    from minio.admin import AdminClient
+    ADMIN_SUPPORT = True
+except ImportError:
+    ADMIN_SUPPORT = False
+    logger_import = logging.getLogger(__name__)
+    logger_import.warning("AdminClient not available, user/policy management disabled")
 
 # Настройка логирования
 logging.basicConfig(
@@ -39,6 +48,23 @@ class MinIOInitializer:
             secure=secure
         )
         self.endpoint = endpoint
+        self.access_key = access_key
+        self.secret_key = secret_key
+        self.secure = secure
+        
+        # Инициализируем AdminClient если доступен
+        self.admin_client = None
+        if ADMIN_SUPPORT:
+            try:
+                self.admin_client = AdminClient(
+                    endpoint,
+                    access_key=access_key,
+                    secret_key=secret_key,
+                    secure=secure
+                )
+                logger.info("AdminClient initialized successfully")
+            except Exception as e:
+                logger.warning(f"Failed to initialize AdminClient: {e}")
         
         # Определение бакетов и их политик доступа
         self.buckets_config = {
@@ -156,90 +182,74 @@ class MinIOInitializer:
     
     def create_users(self) -> None:
         """Создание пользователей (требует административных привилегий)"""
-        logger.info("Создание пользователей...")
+        if not self.admin_client:
+            logger.warning("AdminClient не доступен. Пропускаем создание пользователей.")
+            return
         
-        # Проверяем, является ли текущий пользователь администратором
-        try:
-            # Пытаемся выполнить admin операцию
-            self.client.list_users()
-        except S3Error as e:
-            if e.code == "AccessDenied":
-                logger.warning("Текущий пользователь не имеет прав администратора. Пропускаем создание пользователей.")
-                return
-            raise
+        logger.info("Создание пользователей...")
         
         for username, password in self.users.items():
             try:
-                # Пытаемся получить информацию о пользователе
+                # Проверяем существует ли пользователь
                 try:
-                    # В новых версиях minio-py используется другая API
-                    # Пробуем разные методы
-                    try:
-                        self.client.get_user(username)
-                    except AttributeError:
-                        # Если метод get_user не существует, пробуем альтернативу
-                        pass
-                    
+                    self.admin_client.get_user(username)
                     logger.info(f"✓ Пользователь '{username}' уже существует")
-                except S3Error as e:
-                    if e.code == "XMinioAdminNoSuchUser":
-                        # Создаем нового пользователя
-                        try:
-                            self.client.add_user(username, password)
-                            logger.info(f"✓ Пользователь '{username}' создан")
-                        except AttributeError:
-                            # В некоторых версиях API метод называется иначе
-                            logger.warning(f"Создание пользователя '{username}' не поддерживается в этой версии minio-py")
-                    else:
-                        raise
-            except S3Error as e:
-                logger.error(f"✗ Ошибка при создании пользователя '{username}': {e}")
+                except Exception as e:
+                    # Пользователь не существует, создаем
+                    try:
+                        self.admin_client.add_user(username, password)
+                        logger.info(f"✓ Пользователь '{username}' создан")
+                    except Exception as add_error:
+                        logger.error(f"✗ Ошибка при создании пользователя '{username}': {add_error}")
+            except Exception as e:
+                logger.error(f"✗ Ошибка при проверке пользователя '{username}': {e}")
     
     def create_policies(self) -> None:
         """Создание кастомных политик и привязка к пользователям"""
-        logger.info("Создание кастомных политик...")
+        if not self.admin_client:
+            logger.warning("AdminClient не доступен. Пропускаем создание политик.")
+            return
         
-        # Проверяем права администратора
-        try:
-            self.client.list_policies()
-        except (S3Error, AttributeError) as e:
-            if hasattr(e, 'code') and e.code == "AccessDenied":
-                logger.warning("Текущий пользователь не имеет прав администратора. Пропускаем создание политик.")
-                return
-            elif isinstance(e, AttributeError):
-                logger.warning("Управление политиками не поддерживается в этой версии minio-py")
-                return
-            raise
+        logger.info("Создание кастомных политик...")
         
         for policy_name, policy_definition in self.policies.items():
             try:
-                # Сохраняем политику в файл (альтернативный метод)
                 policy_json = json.dumps(policy_definition, indent=2)
                 
-                # В некоторых версиях minio-py политики создаются через admin API
+                # Создаем или обновляем политику
                 try:
-                    # Пытаемся использовать админский клиент
-                    from minio.admin import AdminClient
-                    admin_client = AdminClient(self.endpoint, 
-                                               access_key=self.client._access_key,
-                                               secret_key=self.client._secret_key,
-                                               secure=self.client._secure)
-                    
-                    # Создаем политику
-                    admin_client.add_canned_policy(policy_name, policy_json)
-                    logger.info(f"✓ Политика '{policy_name}' создана")
-                    
-                    # Привязываем к пользователю
-                    for username in self.users.keys():
-                        admin_client.set_user_policy(username, policy_name)
-                        logger.info(f"✓ Политика '{policy_name}' привязана к пользователю '{username}'")
+                    # Проверяем существует ли политика
+                    existing_policy = self.admin_client.get_policy(policy_name)
+                    if existing_policy:
+                        logger.info(f"✓ Политика '{policy_name}' уже существует")
+                        # Можно обновить если нужно
+                        # self.admin_client.add_canned_policy(policy_name, policy_json)
+                    else:
+                        self.admin_client.add_canned_policy(policy_name, policy_json)
+                        logger.info(f"✓ Политика '{policy_name}' создана")
+                except Exception as e:
+                    # Политика не найдена или другая ошибка
+                    try:
+                        self.admin_client.add_canned_policy(policy_name, policy_json)
+                        logger.info(f"✓ Политика '{policy_name}' создана")
+                    except Exception as add_error:
+                        logger.error(f"✗ Ошибка при создании политики '{policy_name}': {add_error}")
+                        continue
+                
+                # Привязываем политику к пользователям
+                for username in self.users.keys():
+                    try:
+                        # Получаем текущие политики пользователя
+                        user_info = self.admin_client.get_user(username)
                         
-                except (AttributeError, ImportError):
-                    # Если AdminClient не доступен, пропускаем
-                    logger.warning(f"Создание политики '{policy_name}' не поддерживается в этой версии minio-py")
-                    
+                        # Привязываем политику
+                        self.admin_client.attach_policy(policy_name, username)
+                        logger.info(f"✓ Политика '{policy_name}' привязана к пользователю '{username}'")
+                    except Exception as e:
+                        logger.error(f"✗ Ошибка при привязке политики к '{username}': {e}")
+                        
             except Exception as e:
-                logger.error(f"✗ Ошибка при создании политики '{policy_name}': {e}")
+                logger.error(f"✗ Ошибка при обработке политики '{policy_name}': {e}")
     
     def verify_setup(self) -> None:
         """Верификация созданной конфигурации"""
@@ -254,6 +264,18 @@ class MinIOInitializer:
                 logger.info(f"✓ Бакет '{required_bucket}' присутствует")
             else:
                 logger.error(f"✗ Бакет '{required_bucket}' отсутствует!")
+        
+        # Проверяем пользователей если admin доступен
+        if self.admin_client:
+            for username in self.users.keys():
+                try:
+                    user_info = self.admin_client.get_user(username)
+                    if user_info:
+                        logger.info(f"✓ Пользователь '{username}' существует и активен")
+                    else:
+                        logger.warning(f"⚠ Пользователь '{username}' не найден")
+                except Exception as e:
+                    logger.warning(f"⚠ Не удалось проверить пользователя '{username}': {e}")
     
     def run(self) -> None:
         """Основной метод запуска инициализации"""
@@ -273,10 +295,10 @@ class MinIOInitializer:
             # Устанавливаем политики
             self.set_bucket_policies()
             
-            # Создаем пользователей (опционально)
+            # Создаем пользователей (если доступно)
             self.create_users()
             
-            # Создаем и применяем политики (опционально)
+            # Создаем и применяем политики (если доступно)
             self.create_policies()
             
             # Верифицируем настройки
