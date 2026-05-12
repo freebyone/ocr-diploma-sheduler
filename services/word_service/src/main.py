@@ -1,13 +1,17 @@
+# main.py — исправленная версия (добавлен /health на корневом уровне)
+
 import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import func
 
-from database import engine
+from database import engine, SessionLocal
 from models import Base
 from router import router
 from config import settings
+from schemas import HealthResponse
 
 logging.basicConfig(
     level=logging.INFO,
@@ -18,16 +22,14 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Startup / Shutdown"""
     logger.info("🚀 Запуск word-service...")
-    logger.info(f"📦 PostgreSQL: {settings.POSTGRES_HOST}:{settings.POSTGRES_PORT}/{settings.POSTGRES_DB}")
-
-    # Создаём таблицы, если их нет
+    logger.info(
+        f"📦 PostgreSQL: {settings.POSTGRES_HOST}:"
+        f"{settings.POSTGRES_PORT}/{settings.POSTGRES_DB}"
+    )
     Base.metadata.create_all(bind=engine)
     logger.info("✅ Таблицы проверены/созданы")
-
     yield
-
     logger.info("🛑 Остановка word-service")
 
 
@@ -38,20 +40,18 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS — разрешаем фронту обращаться
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # В продакшене указать конкретные домены
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Подключаем роутер
+# API-роутер (все маршруты доступны по /api/...)
 app.include_router(router, prefix="/api")
 
 
-# Корневой эндпоинт
 @app.get("/")
 def root():
     return {
@@ -59,3 +59,13 @@ def root():
         "version": "1.0.0",
         "docs": "/docs",
     }
+
+
+# ── /health на корневом уровне (для Docker / k8s healthcheck) ──────────
+@app.get("/health", response_model=HealthResponse, tags=["system"])
+def health_check_root():
+    """
+    Healthcheck без обращения к БД — для быстрой проверки контейнера.
+    Полный healthcheck с проверкой БД: GET /api/health
+    """
+    return HealthResponse(status="ok", database="unknown", version="1.0.0")
