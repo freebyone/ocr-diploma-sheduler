@@ -1,11 +1,23 @@
 FROM python:3.11-slim
 
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    libgl1 \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender1 \
+    libfontconfig1 \
+    libx11-6 \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
-RUN pip install --no-cache-dir minio>=7.2.0
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-COPY minio_init.py .
+COPY main.py .
 
-RUN chmod +x minio_init.py
+EXPOSE 8005
 
-ENTRYPOINT ["python", "-u", "minio_init.py"]
+CMD ["python", "main.py"]

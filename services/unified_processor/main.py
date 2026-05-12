@@ -11,7 +11,7 @@ from tempfile import TemporaryDirectory
 
 app = FastAPI(title="Unified Processor")
 
-# Настройки CORS для фронтенда
+# Настройки CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -19,7 +19,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Настройки MinIO из окружения
+# Настройки MinIO
 MINIO_CLIENT = Minio(
     os.getenv("MINIO_ENDPOINT", "minio:9000"),
     access_key=os.getenv("MINIO_ACCESS_KEY", "ocrminio"),
@@ -38,18 +38,13 @@ async def health():
 
 @app.post("/api/process")
 async def process_data(files: List[UploadFile] = File(...)):
-    # Создаем бакеты если их нет
     for b in ["xlsx-documents", "documents-lite"]:
         if not MINIO_CLIENT.bucket_exists(b):
             MINIO_CLIENT.make_bucket(b)
 
     results_count = 0
-    
     try:
-        # TemporaryDirectory автоматически удалится после выхода из блока with
         with TemporaryDirectory() as temp_dir:
-            
-            # 1. Сбрасываем все файлы на диск (защита RAM от OOM при 500+ файлах)
             stored_filenames = []
             for file in files:
                 target_path = os.path.join(temp_dir, file.filename)
@@ -57,7 +52,6 @@ async def process_data(files: List[UploadFile] = File(...)):
                     shutil.copyfileobj(file.file, f)
                 stored_filenames.append(file.filename)
 
-            # 2. Группируем имена по фамилиям
             groups = defaultdict(list)
             for name in stored_filenames:
                 groups[get_surname(name)].append(name)
@@ -70,8 +64,6 @@ async def process_data(files: List[UploadFile] = File(...)):
 
                 for i in range(max(len(xlsx), len(pdfs))):
                     prefix = f"{pair_idx:03d}"
-                    
-                    # Грузим Excel
                     if i < len(xlsx):
                         fname = xlsx[i]
                         path = os.path.join(temp_dir, fname)
@@ -83,7 +75,6 @@ async def process_data(files: List[UploadFile] = File(...)):
                             )
                         results_count += 1
 
-                    # Грузим PDF (делаем превью)
                     if i < len(pdfs):
                         fname = pdfs[i]
                         path = os.path.join(temp_dir, fname)
@@ -100,17 +91,12 @@ async def process_data(files: List[UploadFile] = File(...)):
                                     )
                                     results_count += 1
                         except Exception as e:
-                            print(f"Error processing PDF {fname}: {e}")
-                    
+                            print(f"Error PDF {fname}: {e}")
                     pair_idx += 1
-                    
             return {"status": "success", "processed_count": results_count}
-
     except Exception as e:
-        print(f"Critical error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
-        # Явное закрытие дескрипторов FastAPI
         for file in files:
             await file.close()
 
