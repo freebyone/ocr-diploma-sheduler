@@ -2,16 +2,23 @@ import os
 import shutil
 import io
 import fitz  # PyMuPDF
+import logging
 from typing import List
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from minio import Minio
 from collections import defaultdict
 from tempfile import TemporaryDirectory
+from sqlalchemy.orm import Session
+
+from database import init_db, get_db, check_db_connection
+from models import PairCounter
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Unified Processor")
 
-# Настройки CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -19,7 +26,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Настройки MinIO
 MINIO_CLIENT = Minio(
     os.getenv("MINIO_ENDPOINT", "minio:9000"),
     access_key=os.getenv("MINIO_ACCESS_KEY", "ocrminio"),
@@ -27,22 +33,42 @@ MINIO_CLIENT = Minio(
     secure=os.getenv("MINIO_SECURE", "false").lower() == "true"
 )
 
-def get_surname(filename):
+
+@app.on_event("startup")
+async def startup_event():
+    """Инициализация БД при старте приложения."""
+    logger.info("Initializing database...")
+    init_db()
+    logger.info("Startup complete.")
+
+
+def get_surname(filename: str) -> str:
     name = os.path.splitext(filename)[0]
-    if name.endswith('.plx'): name = name[:-4]
+    if name.endswith('.plx'):
+        name = name[:-4]
     return name.split()[0].split('_')[0]
+
 
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    db_ok = check_db_connection()
+    return {
+        "status": "ok",
+        "database": "connected" if db_ok else "unavailable",
+    }
+
 
 @app.post("/api/process")
-async def process_data(files: List[UploadFile] = File(...)):
-    for b in ["xlsx-documents", "documents-lite"]:
-        if not MINIO_CLIENT.bucket_exists(b):
-            MINIO_CLIENT.make_bucket(b)
+async def process_data(
+    files: List[UploadFile] = File(...),
+    db: Session = Depends(get_db),
+):
+    for bucket in ["xlsx-documents", "documents-lite"]:
+        if not MINIO_CLIENT.bucket_exists(bucket):
+            MINIO_CLIENT.make_bucket(bucket)
 
     results_count = 0
+
     try:
         with TemporaryDirectory() as temp_dir:
             stored_filenames = []
@@ -64,20 +90,33 @@ async def process_data(files: List[UploadFile] = File(...)):
 
                 for i in range(max(len(xlsx), len(pdfs))):
                     prefix = f"{pair_idx:03d}"
+
+                    # Значения для записи в БД
+                    xlsx_fname = None
+                    pdf_fname = None
+                    minio_xlsx_key = None
+                    minio_jpg_key = None
+
+                    # --- XLSX ---
                     if i < len(xlsx):
-                        fname = xlsx[i]
-                        path = os.path.join(temp_dir, fname)
+                        xlsx_fname = xlsx[i]
+                        path = os.path.join(temp_dir, xlsx_fname)
+                        minio_xlsx_key = f"{prefix}_{xlsx_fname}"
                         with open(path, "rb") as f:
                             MINIO_CLIENT.put_object(
-                                "xlsx-documents", f"{prefix}_{fname}", 
-                                f, os.path.getsize(path),
-                                content_type="application/vnd.ms-excel"
+                                "xlsx-documents",
+                                minio_xlsx_key,
+                                f,
+                                os.path.getsize(path),
+                                content_type="application/vnd.ms-excel",
                             )
                         results_count += 1
 
+                    # --- PDF → JPG ---
                     if i < len(pdfs):
-                        fname = pdfs[i]
-                        path = os.path.join(temp_dir, fname)
+                        pdf_fname = pdfs[i]
+                        path = os.path.join(temp_dir, pdf_fname)
+                        minio_jpg_key = f"{prefix}.jpg"
                         try:
                             with fitz.open(path) as doc:
                                 if len(doc) > 0:
@@ -85,20 +124,43 @@ async def process_data(files: List[UploadFile] = File(...)):
                                     pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
                                     img_data = pix.tobytes("jpeg")
                                     MINIO_CLIENT.put_object(
-                                        "documents-lite", f"{prefix}.jpg",
-                                        io.BytesIO(img_data), len(img_data),
-                                        content_type="image/jpeg"
+                                        "documents-lite",
+                                        minio_jpg_key,
+                                        io.BytesIO(img_data),
+                                        len(img_data),
+                                        content_type="image/jpeg",
                                     )
                                     results_count += 1
                         except Exception as e:
-                            print(f"Error PDF {fname}: {e}")
+                            logger.error(f"Error PDF {pdf_fname}: {e}")
+                            minio_jpg_key = None  # не записываем битый ключ
+
+                    # --- Запись в БД ---
+                    record = PairCounter(
+                        pair_index=pair_idx,
+                        surname=surname,
+                        xlsx_filename=xlsx_fname,
+                        pdf_filename=pdf_fname,
+                        minio_xlsx_key=minio_xlsx_key,
+                        minio_jpg_key=minio_jpg_key,
+                    )
+                    db.add(record)
+
                     pair_idx += 1
-            return {"status": "success", "processed_count": results_count}
+
+            db.commit()
+
+        return {"status": "success", "processed_count": results_count}
+
     except Exception as e:
+        db.rollback()
+        logger.error(f"Processing error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
     finally:
         for file in files:
             await file.close()
+
 
 if __name__ == "__main__":
     import uvicorn

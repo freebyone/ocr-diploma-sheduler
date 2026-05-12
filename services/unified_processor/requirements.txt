@@ -1,5 +1,7 @@
 fastapi
 uvicorn
 python-multipart
+PyMuPDF
 minio
-pymupdf
+sqlalchemy
+psycopg2-binary

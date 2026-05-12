@@ -232,6 +232,7 @@ services:
         condition: service_healthy
       minio-init:
         condition: service_completed_successfully
+
   word-service:
     build: ./services/word_service
     container_name: word-service

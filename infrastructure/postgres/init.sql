@@ -1,5 +1,5 @@
 CREATE DATABASE ocr_db;
-CREATE DATABASE norma_db;
+CREATE DATABASE counter_db;
 
 \c ocr_db;
 
@@ -11,9 +11,9 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 \c norma_db;
 
-CREATE USER norma_user WITH PASSWORD 'norma_password';
-GRANT ALL PRIVILEGES ON DATABASE norma_db TO norma_user;
-ALTER DATABASE norma_db OWNER TO norma_user;
+CREATE USER counter_user WITH PASSWORD 'norma_password';
+GRANT ALL PRIVILEGES ON DATABASE counter_db TO counter_user;
+ALTER DATABASE counter_db OWNER TO counter_user;
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
@@ -23,6 +23,6 @@ SELECT
     'Password: ocr_password' as password_info
 UNION ALL
 SELECT 
-    'Database norma_db created',
-    'User: norma_user',
-    'Password: norma_password';
+    'Database counter_db created',
+    'User: counter_user',
+    'Password: counter_password';
